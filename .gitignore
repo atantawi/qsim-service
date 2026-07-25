@@ -1,0 +1,13 @@
+# Java / Maven
+target/
+*.class
+*.jar
+!lib/JMT-singlejar-*.jar
+*.log
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+*.iml
+.vscode/
