@@ -67,6 +67,51 @@ class SimulationHandlerTest {
   }
 
   @Test
+  void unsupportedDistributionTypeMapsTo422() {
+    String json = """
+        {"model":{"name":"m",
+          "classes":[{"name":"web","type":"open"}],
+          "nodes":[{"name":"src","type":"source","arrivals":{"web":{"distribution":{"type":"exponential","rate":1.0}}}},
+                   {"name":"q","type":"queue","servers":1,"scheduling":"fcfs","service":{"web":{"distribution":{"type":"weibull","rate":2.0}}}},
+                   {"name":"snk","type":"sink"}],
+          "routing":{"web":[{"from":"src","to":"q"},{"from":"q","to":"snk"}]}},
+         "seed":1}
+        """;
+    SimulationHandler.Result r = handler.process(json.getBytes(StandardCharsets.UTF_8));
+    assertEquals(422, r.status());
+  }
+
+  @Test
+  void negativeDistributionRateMapsTo422() {
+    String json = """
+        {"model":{"name":"m",
+          "classes":[{"name":"web","type":"open"}],
+          "nodes":[{"name":"src","type":"source","arrivals":{"web":{"distribution":{"type":"exponential","rate":1.0}}}},
+                   {"name":"q","type":"queue","servers":1,"scheduling":"fcfs","service":{"web":{"distribution":{"type":"exponential","rate":-1.0}}}},
+                   {"name":"snk","type":"sink"}],
+          "routing":{"web":[{"from":"src","to":"q"},{"from":"q","to":"snk"}]}},
+         "seed":1}
+        """;
+    SimulationHandler.Result r = handler.process(json.getBytes(StandardCharsets.UTF_8));
+    assertEquals(422, r.status());
+  }
+
+  @Test
+  void missingQueueServiceMapMapsTo422() {
+    String json = """
+        {"model":{"name":"m",
+          "classes":[{"name":"web","type":"open"}],
+          "nodes":[{"name":"src","type":"source","arrivals":{"web":{"distribution":{"type":"exponential","rate":1.0}}}},
+                   {"name":"q","type":"queue","servers":1,"scheduling":"fcfs"},
+                   {"name":"snk","type":"sink"}],
+          "routing":{"web":[{"from":"src","to":"q"},{"from":"q","to":"snk"}]}},
+         "seed":1}
+        """;
+    SimulationHandler.Result r = handler.process(json.getBytes(StandardCharsets.UTF_8));
+    assertEquals(422, r.status());
+  }
+
+  @Test
   void statusForMapsExceptionTypes() {
     assertEquals(422, handler.statusFor(
         new ValidationException(ValidationException.Kind.UNPROCESSABLE, java.util.List.of("x"))));
