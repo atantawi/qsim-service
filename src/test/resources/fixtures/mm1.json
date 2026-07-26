@@ -1,0 +1,18 @@
+{
+  "model": {
+    "name": "mm1",
+    "classes": [{ "name": "web", "type": "open" }],
+    "nodes": [
+      { "name": "src", "type": "source",
+        "arrivals": { "web": { "distribution": { "type": "exponential", "rate": 1.0 } } } },
+      { "name": "q", "type": "queue", "servers": 1, "scheduling": "fcfs", "capacity": null,
+        "service": { "web": { "distribution": { "type": "exponential", "rate": 2.0 } } } },
+      { "name": "snk", "type": "sink" }
+    ],
+    "routing": { "web": [ { "from": "src", "to": "q" }, { "from": "q", "to": "snk" } ] }
+  },
+  "seed": 12345,
+  "stopping": { "alpha": 0.05, "precision": 0.03, "minSamples": 50000, "maxSamples": 2000000,
+                "maxWallClockSeconds": 120 },
+  "measures": ["utilization", "throughput", "response-time"]
+}
