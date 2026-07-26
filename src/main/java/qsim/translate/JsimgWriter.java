@@ -59,7 +59,7 @@ public class JsimgWriter {
     }
     if (measures != null) {
       for (MeasureSpec m : measures) {
-        writeMeasure(sim, m, stopping);
+        writeMeasure(sim, model, m, stopping);
       }
     }
     writeConnections(sim, model);
@@ -241,6 +241,7 @@ public class JsimgWriter {
    * reflective loader throws LoadException.
    */
   private void writeForkJoin(Element sim, Element forkNodeEl, NetworkModel model, ForkJoinNode fj) {
+    checkBranchClassConsistency(fj);
     writeInfiniteQueueSection(forkNodeEl, model, "waiting queue");
     Xml.child(forkNodeEl, "section", "className", "ServiceTunnel");
     Element fork = Xml.child(forkNodeEl, "section", "className", "Fork");
@@ -330,6 +331,40 @@ public class JsimgWriter {
     // method runs interleaved with sibling <node> writes during the main node loop.
   }
 
+  /**
+   * Every branch must serve exactly the same set of classes: the Fork section routes every class
+   * in {@code model.classes()} into every branch (fork semantics send each job to every branch),
+   * but a branch station only carries a {@code ServiceStrategy}/{@code numberOfVisits} entry for
+   * the classes in its own {@code service()} map. A branch missing a class another branch serves
+   * would silently route that class into a Server section with no matching strategy, which the
+   * real engine's reflective loader would reject with the same class of {@code LoadException}
+   * already confirmed for Task 7's Queue section — fail loudly here instead.
+   */
+  private static void checkBranchClassConsistency(ForkJoinNode fj) {
+    List<Branch> branches = fj.branches();
+    if (branches.size() < 2) {
+      return;
+    }
+    java.util.Set<String> reference = branches.get(0).service().keySet();
+    for (int i = 1; i < branches.size(); i++) {
+      java.util.Set<String> current = branches.get(i).service().keySet();
+      if (current.equals(reference)) {
+        continue;
+      }
+      java.util.Set<String> onlyInReference = new java.util.TreeSet<>(reference);
+      onlyInReference.removeAll(current);
+      java.util.Set<String> onlyInCurrent = new java.util.TreeSet<>(current);
+      onlyInCurrent.removeAll(reference);
+      boolean missingFromCurrent = !onlyInReference.isEmpty();
+      String offendingClass = missingFromCurrent ? onlyInReference.iterator().next() : onlyInCurrent.iterator().next();
+      int servingBranch = missingFromCurrent ? 0 : i;
+      int missingBranch = missingFromCurrent ? i : 0;
+      throw new ValidationException(ValidationException.Kind.UNPROCESSABLE,
+          List.of("fork-join '" + fj.name() + "' has inconsistent branch class coverage: class '"
+              + offendingClass + "' is served by branch " + servingBranch + " but not by branch " + missingBranch));
+    }
+  }
+
   /** §5.3/design: v1 only supports {@code "all"} (NormalJoin numRequired=-1 = wait for every branch). */
   private static String numRequired(ForkJoinNode fj) {
     if (fj.join() == null || "all".equals(fj.join())) {
@@ -405,10 +440,10 @@ public class JsimgWriter {
 
   private void writeRouter(Element node, NetworkModel model, String fromNode) {
     // A join station's outgoing routes are the domain fork-join node's out-edges (the join is
-    // where routing "out of the fork-join" actually happens per the design decision).
-    String routingKey = fromNode.endsWith("__join")
-        ? fromNode.substring(0, fromNode.length() - "__join".length())
-        : fromNode;
+    // where routing "out of the fork-join" actually happens per the design decision). Resolved by
+    // set membership against the model's actual ForkJoinNodes (not a "__join" string-suffix
+    // heuristic), so a user-named node that happens to end in "__join" is never misrouted.
+    String routingKey = joinRoutingKey(model, fromNode);
     Element section = Xml.child(node, "section", "className", "Router");
     Element param = Xml.child(section, "parameter",
         "classPath", "jmt.engine.NetStrategies.RoutingStrategy",
@@ -438,6 +473,22 @@ public class JsimgWriter {
         }
       }
     }
+  }
+
+  /**
+   * If {@code fromNode} is the writer-generated join station for some domain {@code ForkJoinNode},
+   * returns that fork-join's domain name (whose routing edges are what the join's Router should
+   * reflect); otherwise returns {@code fromNode} unchanged. Built from the model's actual
+   * fork-join nodes rather than a {@code "__join"} string-suffix check, so a station a user
+   * happens to name e.g. {@code "checkout__join"} is never misrouted.
+   */
+  private static String joinRoutingKey(NetworkModel model, String fromNode) {
+    for (Node n : model.nodes()) {
+      if (n instanceof ForkJoinNode fj && joinStationName(fj.name()).equals(fromNode)) {
+        return fj.name();
+      }
+    }
+    return fromNode;
   }
 
   private static List<RoutingEdge> outEdges(NetworkModel model, String className, String fromNode) {
@@ -490,18 +541,34 @@ public class JsimgWriter {
 
   // ---- measures ------------------------------------------------------------
 
-  private void writeMeasure(Element sim, MeasureSpec m, Stopping stopping) {
+  private void writeMeasure(Element sim, NetworkModel model, MeasureSpec m, Stopping stopping) {
     String alpha = stopping == null || stopping.alpha() == null ? "0.01" : Double.toString(1.0 - stopping.alpha());
     String precision = stopping == null || stopping.precision() == null ? "0.03" : stopping.precision().toString();
     Xml.child(sim, "measure",
         "name", m.name(),
         "type", m.jmtType(),
-        "referenceNode", m.referenceNode(),
+        "referenceNode", expandedMeasureNode(model, m.referenceNode()),
         "referenceUserClass", m.referenceUserClass(),
         "nodeType", m.nodeType(),
         "alpha", alpha,
         "precision", precision,
         "verbose", "false");
+  }
+
+  /**
+   * A measure whose {@code referenceNode} names a domain fork-join node must be remapped to the
+   * join station: {@code MeasureMapper} (Task 6, unchanged) has no notion of the writer's internal
+   * fork/branch/join expansion and sets {@code referenceNode} to the fork-join's domain name, which
+   * is the JSIMG fork node — the *entry* of the fork-join, not its exit. Confined to the writer per
+   * the brief's design decision so Task 6 stays agnostic of Task 8's expansion.
+   */
+  private static String expandedMeasureNode(NetworkModel model, String name) {
+    for (Node n : model.nodes()) {
+      if (n instanceof ForkJoinNode fj && fj.name().equals(name)) {
+        return joinStationName(fj.name());
+      }
+    }
+    return name;
   }
 
   // ---- XSD validation ------------------------------------------------------

@@ -16,6 +16,8 @@ package qsim.translate;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
@@ -23,6 +25,7 @@ import javax.xml.xpath.XPath;
 import javax.xml.xpath.XPathFactory;
 import org.junit.jupiter.api.Test;
 import org.w3c.dom.Document;
+import qsim.contract.ValidationException;
 import qsim.model.*;
 
 class JsimgWriterClosedForkTest {
@@ -87,5 +90,35 @@ class JsimgWriterClosedForkTest {
     // edge out of fj originates from the join
     assertEquals("1", xp.evaluate("count(/sim/connection[@source='fj__join'][@target='snk'])", doc));
     assertDoesNotThrow(() -> writer.validate(doc));
+  }
+
+  @Test
+  void measureOnForkJoinRemapsToJoinStation() throws Exception {
+    var measure = new MeasureSpec("fj_web_rt", "Response Time", "fj", "web", "station");
+    Document doc = writer.toDocument(forkNet(), stopping(), 7L, List.of(measure));
+    XPath xp = XPathFactory.newInstance().newXPath();
+    assertEquals("fj__join", xp.evaluate("/sim/measure[@name='fj_web_rt']/@referenceNode", doc));
+    assertEquals("0", xp.evaluate("count(/sim/measure[@referenceNode='fj'])", doc));
+    assertDoesNotThrow(() -> writer.validate(doc));
+  }
+
+  @Test
+  void forkJoinWithMismatchedBranchClassesIsRejected() {
+    NetworkModel model = new NetworkModel("fork",
+        List.of(new JobClass("web", "open", null, null), new JobClass("api", "open", null, null)),
+        List.of(new SourceNode("src", "source",
+                    Map.of("web", new ArrivalSpec(exp(1.0)), "api", new ArrivalSpec(exp(1.0)))),
+                new ForkJoinNode("fj", "fork-join",
+                    List.of(new Branch(Map.of("web", new ServiceSpec(exp(4.0)), "api", new ServiceSpec(exp(4.0)))),
+                            new Branch(Map.of("web", new ServiceSpec(exp(8.0))))),
+                    "all"),
+                new SinkNode("snk", "sink")),
+        Map.of("web", List.of(new RoutingEdge("src", "fj", null), new RoutingEdge("fj", "snk", null)),
+               "api", List.of(new RoutingEdge("src", "fj", null), new RoutingEdge("fj", "snk", null))));
+    ValidationException ex = assertThrows(ValidationException.class,
+        () -> writer.toDocument(model, stopping(), 7L, List.of()));
+    assertEquals(ValidationException.Kind.UNPROCESSABLE, ex.kind());
+    assertTrue(ex.getMessage().contains("fj"));
+    assertTrue(ex.getMessage().contains("api"));
   }
 }
