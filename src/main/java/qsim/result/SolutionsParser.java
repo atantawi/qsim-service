@@ -18,6 +18,8 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -42,6 +44,13 @@ public class SolutionsParser {
   public Parsed parse(File output) {
     try {
       DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();
+      // XXE hardening: disable DOCTYPEs and external entities
+      f.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+      f.setFeature("http://xml.org/sax/features/external-general-entities", false);
+      f.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+      f.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+      f.setXIncludeAware(false);
+      f.setExpandEntityReferences(false);
       Document doc = f.newDocumentBuilder().parse(output);
       NodeList measures = doc.getElementsByTagName("measure");
       List<MeasureResult> results = new ArrayList<>();
@@ -74,12 +83,18 @@ public class SolutionsParser {
   /** Map an expanded fork-join station name back to its domain node name. */
   static String domainStation(String station) {
     if (station == null) return null;
-    int join = station.indexOf("__join");
-    if (join >= 0) return station.substring(0, join);
-    int branch = station.indexOf("__b");
-    if (branch >= 0) return station.substring(0, branch);
+    // Strip only TRUE suffixes (not substrings): __join at end, or __b followed by digits at end
+    if (station.endsWith("__join")) {
+      return station.substring(0, station.length() - "__join".length());
+    }
+    Matcher mb = BRANCH_SUFFIX_PATTERN.matcher(station);
+    if (mb.find()) {
+      return station.substring(0, mb.start());
+    }
     return station;
   }
+
+  private static final Pattern BRANCH_SUFFIX_PATTERN = Pattern.compile("__b\\d+$");
 
   private static Double significance(String alfa) {
     Double conf = parseD(alfa);

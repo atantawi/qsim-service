@@ -32,7 +32,7 @@ class SolutionsParserTest {
   @Test
   void parsesMeasuresAndMapsTypeAndStation() throws Exception {
     SolutionsParser.Parsed p = new SolutionsParser().parse(resource("/results/mm1.solutions.xml"));
-    assertEquals(2, p.measures().size());
+    assertEquals(4, p.measures().size());
 
     MeasureResult u = p.measures().get(0);
     assertEquals("q", u.station());
@@ -42,16 +42,24 @@ class SolutionsParserTest {
     assertEquals(0.4901, u.lower());
     assertEquals(true, u.success());
     assertEquals(45000, u.samplesAnalyzed());
-    assertEquals(0.05, u.alpha());                // 1 - 0.99 (confidence -> significance)
+    assertEquals(0.05, u.alpha());                // 1 - 0.95 (confidence -> significance)
 
     MeasureResult rt = p.measures().get(1);
-    assertEquals("fj", rt.station());             // fj__join -> fj
+    assertEquals("fj", rt.station());             // fj__join -> fj (join suffix stripped)
     assertEquals("response-time", rt.type());
+
+    MeasureResult branch = p.measures().get(2);
+    assertEquals("fj", branch.station());         // fj__b0 -> fj (branch suffix stripped)
+    assertEquals("queue-length", branch.type());
+
+    MeasureResult noStrip = p.measures().get(3);
+    assertEquals("queue__buffer", noStrip.station()); // queue__buffer NOT stripped (not a true fork-join suffix)
+    assertEquals("utilization", noStrip.type());
   }
 
   @Test
   void completedFalseWhenAnyMeasureUnsuccessful() throws Exception {
     SolutionsParser.Parsed p = new SolutionsParser().parse(resource("/results/mm1.solutions.xml"));
-    assertFalse(p.completed());                   // second measure has successful="false"
+    assertFalse(p.completed());                   // second measure (fj__join) has successful="false"
   }
 }

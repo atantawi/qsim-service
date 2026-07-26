@@ -10,4 +10,14 @@
            successful="false" analyzedSamples="1000000" discardedSamples="0"
            precision="0.12" alfa="0.99" maxSamples="1000000" nodeType="station"
            variance="0.04" standardDeviation="0.2"/>
+  <measure measureType="Number of Customers" station="fj__b0" class="web"
+           meanValue="1.5" lowerLimit="1.2" upperLimit="1.8"
+           successful="true" analyzedSamples="500000" discardedSamples="500"
+           precision="0.15" alfa="0.95" maxSamples="1000000" nodeType="station"
+           variance="0.0025" standardDeviation="0.05"/>
+  <measure measureType="Utilization" station="queue__buffer" class="web"
+           meanValue="0.45" lowerLimit="0.40" upperLimit="0.50"
+           successful="true" analyzedSamples="45000" discardedSamples="1200"
+           precision="0.0221" alfa="0.95" maxSamples="1000000" nodeType="station"
+           variance="0.0011" standardDeviation="0.0331"/>
 </solutions>
