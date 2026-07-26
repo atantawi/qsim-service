@@ -14,9 +14,12 @@
  */
 package qsim.http;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import qsim.contract.ValidationException;
@@ -70,5 +73,19 @@ class SimulationHandlerTest {
     assertEquals(400, handler.statusFor(
         new ValidationException(ValidationException.Kind.BAD_REQUEST, java.util.List.of("x"))));
     assertEquals(500, handler.statusFor(new EngineException("boom", null)));
+  }
+
+  @Test
+  void readBoundedAcceptsBodyAtOrUnderLimit() throws Exception {
+    byte[] data = "hello".getBytes(StandardCharsets.UTF_8);
+    byte[] result = SimulationHandler.readBounded(new ByteArrayInputStream(data), data.length);
+    assertArrayEquals(data, result);
+  }
+
+  @Test
+  void readBoundedThrowsWhenBodyExceedsLimit() {
+    byte[] data = "hello world".getBytes(StandardCharsets.UTF_8);
+    assertThrows(SimulationHandler.PayloadTooLargeException.class,
+        () -> SimulationHandler.readBounded(new ByteArrayInputStream(data), 5));
   }
 }

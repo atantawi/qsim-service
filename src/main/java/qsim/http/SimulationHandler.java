@@ -18,9 +18,14 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.UUID;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import qsim.contract.ValidationException;
 import qsim.engine.EngineException;
 import qsim.model.SimulationRequest;
@@ -28,7 +33,17 @@ import qsim.model.SimulationResponse;
 
 public class SimulationHandler implements HttpHandler {
 
+  /** Upper bound on request-body size, to prevent unbounded-memory DoS. */
+  static final int MAX_REQUEST_BYTES = 4 * 1024 * 1024;
+
+  private static final Logger LOG = Logger.getLogger(SimulationHandler.class.getName());
+
   public record Result(int status, byte[] body) {}
+
+  /** Thrown when a request body exceeds MAX_REQUEST_BYTES. */
+  static final class PayloadTooLargeException extends IOException {
+    PayloadTooLargeException(String m) { super(m); }
+  }
 
   private final SimulationService service;
 
@@ -43,12 +58,47 @@ public class SimulationHandler implements HttpHandler {
         writeJson(exchange, 405, toJson(new ErrorResponse("method not allowed", List.of())));
         return;
       }
-      byte[] body = exchange.getRequestBody().readAllBytes();
+      String contentLength = exchange.getRequestHeaders().getFirst("Content-Length");
+      if (contentLength != null) {
+        try {
+          if (Long.parseLong(contentLength.trim()) > MAX_REQUEST_BYTES) {
+            writeJson(exchange, 413, toJson(new ErrorResponse("request body too large",
+                List.of("limit " + MAX_REQUEST_BYTES + " bytes"))));
+            return;
+          }
+        } catch (NumberFormatException ignored) {
+          // fall through to bounded read, which enforces the limit regardless.
+        }
+      }
+      byte[] body;
+      try {
+        body = readBounded(exchange.getRequestBody(), MAX_REQUEST_BYTES);
+      } catch (PayloadTooLargeException e) {
+        writeJson(exchange, 413, toJson(new ErrorResponse("request body too large",
+            List.of("limit " + MAX_REQUEST_BYTES + " bytes"))));
+        return;
+      }
       Result r = process(body);
       writeJson(exchange, r.status(), r.body());
     } finally {
       exchange.close();
     }
+  }
+
+  /** Reads up to {@code max} bytes from {@code in}; throws PayloadTooLargeException if more remain. */
+  static byte[] readBounded(InputStream in, int max) throws IOException {
+    ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(max, 8192));
+    byte[] buf = new byte[8192];
+    int total = 0;
+    int n;
+    while ((n = in.read(buf)) != -1) {
+      total += n;
+      if (total > max) {
+        throw new PayloadTooLargeException("request body exceeds " + max + " bytes");
+      }
+      out.write(buf, 0, n);
+    }
+    return out.toByteArray();
   }
 
   /** Pure request→response mapping, testable without a socket. */
@@ -69,9 +119,15 @@ public class SimulationHandler implements HttpHandler {
           e.kind() == ValidationException.Kind.BAD_REQUEST ? "invalid request" : "unprocessable model",
           e.details())));
     } catch (EngineException e) {
-      return new Result(500, toJson(new ErrorResponse("simulation engine error", List.of(rootMessage(e)))));
+      String correlationId = UUID.randomUUID().toString();
+      LOG.log(Level.SEVERE, "simulation failed [" + correlationId + "]", e);
+      return new Result(500, toJson(new ErrorResponse("simulation engine error",
+          List.of("correlationId=" + correlationId))));
     } catch (RuntimeException e) {
-      return new Result(500, toJson(new ErrorResponse("internal error", List.of(rootMessage(e)))));
+      String correlationId = UUID.randomUUID().toString();
+      LOG.log(Level.SEVERE, "simulation failed [" + correlationId + "]", e);
+      return new Result(500, toJson(new ErrorResponse("internal error",
+          List.of("correlationId=" + correlationId))));
     }
   }
 
