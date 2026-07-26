@@ -63,6 +63,7 @@ public class JsimgWriter {
       }
     }
     writeConnections(sim, model);
+    writePreload(sim, model);
     return doc;
   }
 
@@ -93,10 +94,59 @@ public class JsimgWriter {
             List.of("open class '" + className + "' has no source")));
   }
 
-  /** Overridden behavior lives in Task 8; open-only build never reaches a closed class. */
+  /**
+   * Closed class: {@code customers} carries the population and {@code referenceSource} the
+   * reference station (verified attribute names against jmt.engine.simEngine.SimLoader, which
+   * reads {@code referenceSource} for both open and closed classes).
+   */
   protected void writeClosedUserClass(Element sim, NetworkModel model, JobClass c) {
+    String ref = c.referenceStation() != null ? c.referenceStation() : defaultReference(model, c.name());
+    Xml.child(sim, "userClass",
+        "name", c.name(), "type", "closed", "priority", "0",
+        "customers", c.population().toString(),
+        "referenceSource", ref);
+  }
+
+  /** Section 5.3: default to the class's delay node if present, else its first routed station. */
+  private String defaultReference(NetworkModel model, String className) {
+    for (Node n : model.nodes()) {
+      if (n instanceof DelayNode d && d.service().containsKey(className)) {
+        return d.name();
+      }
+    }
+    List<RoutingEdge> edges = model.routing() == null ? List.of()
+        : model.routing().getOrDefault(className, List.of());
+    if (!edges.isEmpty()) {
+      return edges.get(0).from();
+    }
     throw new ValidationException(ValidationException.Kind.UNPROCESSABLE,
-        List.of("closed classes not yet supported"));
+        List.of("cannot determine referenceStation for closed class '" + className + "'"));
+  }
+
+  /**
+   * The engine's {@code SimLoader} never reads {@code userClass@customers} — it only seeds
+   * closed-class populations from a {@code <preload>} block (verified against
+   * jmt.engine.simEngine.SimLoader lines ~486-546). Without this, a closed network would
+   * simulate with zero customers and produce degenerate (but not XSD-invalid) results.
+   */
+  private void writePreload(Element sim, NetworkModel model) {
+    var byStation = new java.util.LinkedHashMap<String, java.util.List<JobClass>>();
+    for (JobClass c : model.classes()) {
+      if ("closed".equals(c.type())) {
+        String ref = c.referenceStation() != null ? c.referenceStation() : defaultReference(model, c.name());
+        byStation.computeIfAbsent(ref, k -> new java.util.ArrayList<>()).add(c);
+      }
+    }
+    if (byStation.isEmpty()) {
+      return;
+    }
+    Element preload = Xml.child(sim, "preload");
+    for (var entry : byStation.entrySet()) {
+      Element sp = Xml.child(preload, "stationPopulations", "stationName", entry.getKey());
+      for (JobClass c : entry.getValue()) {
+        Xml.child(sp, "classPopulation", "refClass", c.name(), "population", c.population().toString());
+      }
+    }
   }
 
   // ---- nodes ---------------------------------------------------------------
@@ -118,10 +168,179 @@ public class JsimgWriter {
     }
   }
 
-  /** Delay and fork-join sections are added in Task 8. */
   protected void writeNonOpenNode(Element sim, Element node, NetworkModel model, Node n) {
-    throw new ValidationException(ValidationException.Kind.UNPROCESSABLE,
-        List.of("node type '" + n.type() + "' not yet supported"));
+    if (n instanceof DelayNode d) {
+      writeDelayNode(node, model, d);
+    } else if (n instanceof ForkJoinNode fj) {
+      writeForkJoin(sim, node, model, fj);
+    } else {
+      throw new ValidationException(ValidationException.Kind.UNPROCESSABLE,
+          List.of("unknown node type '" + n.type() + "'"));
+    }
+  }
+
+  private void writeDelayNode(Element node, NetworkModel model, DelayNode d) {
+    writeInfiniteQueueSection(node, model, "waiting queue");
+    Element delay = Xml.child(node, "section", "className", "Delay");
+    Element svc = Xml.child(delay, "parameter",
+        "classPath", "jmt.engine.NetStrategies.ServiceStrategy", "name", "ServiceStrategy", "array", "true");
+    for (Map.Entry<String, ServiceSpec> e : d.service().entrySet()) {
+      writeServiceStrategyEntry(svc, e.getKey(), e.getValue().distribution());
+    }
+    writeRouter(node, model, d.name());
+  }
+
+  /**
+   * A {@code Queue} section with unbounded capacity, matching the real JMT
+   * {@code Queue(Integer, String[], QueueGetStrategy, QueuePutStrategy[])} constructor —
+   * verified against the extracted fork template (src/test/resources/jmt/mm1.sim.xml). Task 7's
+   * simpler single-attribute Queue writer (for open queue nodes) is untouched; this is new code
+   * for the node kinds Task 8 introduces.
+   */
+  private void writeInfiniteQueueSection(Element node, NetworkModel model, String dropStrategyValue) {
+    Element section = Xml.child(node, "section", "className", "Queue");
+    Xml.textEl(Xml.child(section, "parameter", "classPath", "java.lang.Integer", "name", "size"), "value", "-1");
+    Element drop = Xml.child(section, "parameter",
+        "classPath", "java.lang.String", "name", "dropStrategies", "array", "true");
+    for (JobClass c : model.classes()) {
+      Element rc = Xml.child(drop, "refClass");
+      rc.appendChild(rc.getOwnerDocument().createTextNode(c.name()));
+      Xml.textEl(Xml.child(drop, "subParameter", "classPath", "java.lang.String", "name", "dropStrategy"),
+          "value", dropStrategyValue);
+    }
+    Xml.child(section, "parameter",
+        "classPath", "jmt.engine.NetStrategies.QueueGetStrategies.FCFSstrategy", "name", "FCFSstrategy");
+    Element put = Xml.child(section, "parameter",
+        "classPath", "jmt.engine.NetStrategies.QueuePutStrategy", "name", "QueuePutStrategy", "array", "true");
+    for (JobClass c : model.classes()) {
+      Element rc = Xml.child(put, "refClass");
+      rc.appendChild(rc.getOwnerDocument().createTextNode(c.name()));
+      Xml.child(put, "subParameter",
+          "classPath", "jmt.engine.NetStrategies.QueuePutStrategies.TailStrategy", "name", "TailStrategy");
+    }
+  }
+
+  /** {@code forkNode + "__b" + index} — package-visible so the measure mapper can remap onto it. */
+  static String branchStationName(String forkNode, int index) {
+    return forkNode + "__b" + index;
+  }
+
+  /** {@code forkNode + "__join"} — package-visible so the measure mapper can remap onto it. */
+  static String joinStationName(String forkNode) {
+    return forkNode + "__join";
+  }
+
+  /**
+   * Expands a domain fork-join node into 2+N JSIMG nodes: the fork node itself (kept under the
+   * domain name, sections Queue+ServiceTunnel+Fork), one branch Server station per branch, and a
+   * join node (Join+ServiceTunnel+Router). Verified against the real fork template extracted at
+   * src/test/resources/jmt/mm1.sim.xml (JMT's open_1class_3stat_fork.jsimg): the Fork section's
+   * 4-arg constructor requires a ForkStrategy array parameter (ProbabilitiesFork/OutPath per
+   * branch) even though isSimplifiedFork=true means actual routing follows the node's real
+   * output connections — omitting it leaves no matching Fork constructor and the engine's
+   * reflective loader throws LoadException.
+   */
+  private void writeForkJoin(Element sim, Element forkNodeEl, NetworkModel model, ForkJoinNode fj) {
+    writeInfiniteQueueSection(forkNodeEl, model, "waiting queue");
+    Xml.child(forkNodeEl, "section", "className", "ServiceTunnel");
+    Element fork = Xml.child(forkNodeEl, "section", "className", "Fork");
+    Xml.textEl(Xml.child(fork, "parameter", "classPath", "java.lang.Integer", "name", "jobsPerLink"), "value", "1");
+    Xml.textEl(Xml.child(fork, "parameter", "classPath", "java.lang.Integer", "name", "block"), "value", "-1");
+    Xml.textEl(Xml.child(fork, "parameter", "classPath", "java.lang.Boolean", "name", "isSimplifiedFork"),
+        "value", "true");
+    Element forkStrategy = Xml.child(fork, "parameter",
+        "classPath", "jmt.engine.NetStrategies.ForkStrategy", "name", "ForkStrategy", "array", "true");
+    for (JobClass c : model.classes()) {
+      Element rc = Xml.child(forkStrategy, "refClass");
+      rc.appendChild(rc.getOwnerDocument().createTextNode(c.name()));
+      Element branchProb = Xml.child(forkStrategy, "subParameter",
+          "classPath", "jmt.engine.NetStrategies.ForkStrategies.ProbabilitiesFork", "name", "Branch Probabilities");
+      Element outPaths = Xml.child(branchProb, "subParameter",
+          "classPath", "jmt.engine.NetStrategies.ForkStrategies.OutPath", "name", "EmpiricalEntryArray",
+          "array", "true");
+      for (int i = 0; i < fj.branches().size(); i++) {
+        writeOutPathEntry(outPaths, branchStationName(fj.name(), i));
+      }
+    }
+
+    for (int i = 0; i < fj.branches().size(); i++) {
+      writeBranchStation(sim, model, fj, i);
+    }
+
+    Element joinNode = Xml.child(sim, "node", "name", joinStationName(fj.name()));
+    Element join = Xml.child(joinNode, "section", "className", "Join");
+    Element joinStrategy = Xml.child(join, "parameter",
+        "classPath", "jmt.engine.NetStrategies.JoinStrategy", "name", "JoinStrategy", "array", "true");
+    String numRequired = numRequired(fj);
+    for (JobClass c : model.classes()) {
+      Element rc = Xml.child(joinStrategy, "refClass");
+      rc.appendChild(rc.getOwnerDocument().createTextNode(c.name()));
+      Element normalJoin = Xml.child(joinStrategy, "subParameter",
+          "classPath", "jmt.engine.NetStrategies.JoinStrategies.NormalJoin", "name", "Standard Join");
+      Xml.textEl(Xml.child(normalJoin, "subParameter", "classPath", "java.lang.Integer", "name", "numRequired"),
+          "value", numRequired);
+    }
+    Xml.child(joinNode, "section", "className", "ServiceTunnel");
+    writeRouter(joinNode, model, joinStationName(fj.name()));
+  }
+
+  /** One {@code OutPathEntry} (stationName + deterministic single-job link) for a fork branch. */
+  private void writeOutPathEntry(Element outPaths, String branchName) {
+    Element outPathEntry = Xml.child(outPaths, "subParameter",
+        "classPath", "jmt.engine.NetStrategies.ForkStrategies.OutPath", "name", "OutPathEntry");
+    Element outUnit = Xml.child(outPathEntry, "subParameter",
+        "classPath", "jmt.engine.random.EmpiricalEntry", "name", "outUnitProbability");
+    Xml.textEl(Xml.child(outUnit, "subParameter", "classPath", "java.lang.String", "name", "stationName"),
+        "value", branchName);
+    Xml.textEl(Xml.child(outUnit, "subParameter", "classPath", "java.lang.Double", "name", "probability"),
+        "value", "1.0");
+    Element jobsPerLinkDis = Xml.child(outPathEntry, "subParameter",
+        "classPath", "jmt.engine.random.EmpiricalEntry", "name", "JobsPerLinkDis", "array", "true");
+    Element entry = Xml.child(jobsPerLinkDis, "subParameter",
+        "classPath", "jmt.engine.random.EmpiricalEntry", "name", "EmpiricalEntry");
+    Xml.textEl(Xml.child(entry, "subParameter", "classPath", "java.lang.String", "name", "numbers"), "value", "1");
+    Xml.textEl(Xml.child(entry, "subParameter", "classPath", "java.lang.Double", "name", "probability"),
+        "value", "1.0");
+  }
+
+  /** A branch station: Queue (infinite) + single-server Server + Router (fork's routes to it are external). */
+  private void writeBranchStation(Element sim, NetworkModel model, ForkJoinNode fj, int index) {
+    Branch b = fj.branches().get(index);
+    String branchName = branchStationName(fj.name(), index);
+    Element bnode = Xml.child(sim, "node", "name", branchName);
+    writeInfiniteQueueSection(bnode, model, "waiting queue");
+    Element server = Xml.child(bnode, "section", "className", "Server");
+    Xml.textEl(Xml.child(server, "parameter", "classPath", "java.lang.Integer", "name", "maxJobs"), "value", "1");
+    Element nov = Xml.child(server, "parameter",
+        "classPath", "java.lang.Integer", "name", "numberOfVisits", "array", "true");
+    for (String className : b.service().keySet()) {
+      Element rc = Xml.child(nov, "refClass");
+      rc.appendChild(rc.getOwnerDocument().createTextNode(className));
+      Xml.textEl(Xml.child(nov, "subParameter", "classPath", "java.lang.Integer", "name", "numberOfVisits"),
+          "value", "1");
+    }
+    Element svc = Xml.child(server, "parameter",
+        "classPath", "jmt.engine.NetStrategies.ServiceStrategy", "name", "ServiceStrategy", "array", "true");
+    for (Map.Entry<String, ServiceSpec> e : b.service().entrySet()) {
+      writeServiceStrategyEntry(svc, e.getKey(), e.getValue().distribution());
+    }
+    writeRouter(bnode, model, branchName);
+    // The internal fork->branch->join connections are emitted from writeConnections (not here):
+    // the XSD requires every <node> to precede every <connection> in document order, and this
+    // method runs interleaved with sibling <node> writes during the main node loop.
+  }
+
+  /** §5.3/design: v1 only supports {@code "all"} (NormalJoin numRequired=-1 = wait for every branch). */
+  private static String numRequired(ForkJoinNode fj) {
+    if (fj.join() == null || "all".equals(fj.join())) {
+      return "-1";
+    }
+    try {
+      return Integer.toString(Integer.parseInt(fj.join()));
+    } catch (NumberFormatException e) {
+      throw new ValidationException(ValidationException.Kind.UNPROCESSABLE,
+          List.of("fork-join '" + fj.name() + "' has unsupported join policy '" + fj.join() + "'"));
+    }
   }
 
   private void writeRandomSource(Element node, NetworkModel model, SourceNode src) {
@@ -185,12 +404,17 @@ public class JsimgWriter {
   // ---- routing -------------------------------------------------------------
 
   private void writeRouter(Element node, NetworkModel model, String fromNode) {
+    // A join station's outgoing routes are the domain fork-join node's out-edges (the join is
+    // where routing "out of the fork-join" actually happens per the design decision).
+    String routingKey = fromNode.endsWith("__join")
+        ? fromNode.substring(0, fromNode.length() - "__join".length())
+        : fromNode;
     Element section = Xml.child(node, "section", "className", "Router");
     Element param = Xml.child(section, "parameter",
         "classPath", "jmt.engine.NetStrategies.RoutingStrategy",
         "name", "RoutingStrategy", "array", "true");
     for (JobClass c : model.classes()) {
-      List<RoutingEdge> edges = outEdges(model, c.name(), fromNode);
+      List<RoutingEdge> edges = outEdges(model, c.name(), routingKey);
       Element refClass = Xml.child(param, "refClass");
       refClass.appendChild(refClass.getOwnerDocument().createTextNode(c.name()));
       if (edges.size() <= 1) {
@@ -229,12 +453,35 @@ public class JsimgWriter {
 
   private void writeConnections(Element sim, NetworkModel model) {
     // Distinct (from,to) pairs across all classes — connections are class-agnostic in JSIMG.
+    // An edge leaving a fork-join node actually leaves the join station (see writeForkJoin);
+    // an edge into a fork-join node still targets the fork node, which keeps the domain name.
+    var forkJoinNames = new java.util.HashSet<String>();
+    for (Node n : model.nodes()) {
+      if (n instanceof ForkJoinNode) {
+        forkJoinNames.add(n.name());
+      }
+    }
     var seen = new java.util.LinkedHashSet<String>();
+    // Internal fork -> branch -> join connections for each fork-join node.
+    for (Node n : model.nodes()) {
+      if (n instanceof ForkJoinNode fj) {
+        for (int i = 0; i < fj.branches().size(); i++) {
+          String branchName = branchStationName(fj.name(), i);
+          if (seen.add(fj.name() + "->" + branchName)) {
+            Xml.child(sim, "connection", "source", fj.name(), "target", branchName);
+          }
+          if (seen.add(branchName + "->" + joinStationName(fj.name()))) {
+            Xml.child(sim, "connection", "source", branchName, "target", joinStationName(fj.name()));
+          }
+        }
+      }
+    }
     if (model.routing() != null) {
       for (List<RoutingEdge> edges : model.routing().values()) {
         for (RoutingEdge e : edges) {
-          if (seen.add(e.from() + "->" + e.to())) {
-            Xml.child(sim, "connection", "source", e.from(), "target", e.to());
+          String source = forkJoinNames.contains(e.from()) ? joinStationName(e.from()) : e.from();
+          if (seen.add(source + "->" + e.to())) {
+            Xml.child(sim, "connection", "source", source, "target", e.to());
           }
         }
       }
