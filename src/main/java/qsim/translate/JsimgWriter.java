@@ -158,7 +158,9 @@ public class JsimgWriter {
       writeServiceTunnel(node);
       writeRouter(node, model, n.name());
     } else if (n instanceof QueueNode q) {
-      writeQueueSection(node, q);
+      String sizeValue = q.capacity() == null ? "-1" : q.capacity().toString();
+      String dropStrategyValue = q.capacity() == null ? "waiting queue" : "drop";
+      writeQueueSectionFull(node, model, sizeValue, dropStrategyValue);
       writeServer(node, q);
       writeRouter(node, model, n.name());
     } else if (n instanceof SinkNode) {
@@ -180,7 +182,7 @@ public class JsimgWriter {
   }
 
   private void writeDelayNode(Element node, NetworkModel model, DelayNode d) {
-    writeInfiniteQueueSection(node, model, "waiting queue");
+    writeQueueSectionFull(node, model, "-1", "waiting queue");
     Element delay = Xml.child(node, "section", "className", "Delay");
     Element svc = Xml.child(delay, "parameter",
         "classPath", "jmt.engine.NetStrategies.ServiceStrategy", "name", "ServiceStrategy", "array", "true");
@@ -191,15 +193,20 @@ public class JsimgWriter {
   }
 
   /**
-   * A {@code Queue} section with unbounded capacity, matching the real JMT
+   * A {@code Queue} section matching the real JMT
    * {@code Queue(Integer, String[], QueueGetStrategy, QueuePutStrategy[])} constructor —
-   * verified against the extracted fork template (src/test/resources/jmt/mm1.sim.xml). Task 7's
-   * simpler single-attribute Queue writer (for open queue nodes) is untouched; this is new code
-   * for the node kinds Task 8 introduces.
+   * verified against the extracted fork template (src/test/resources/jmt/mm1.sim.xml) and, as of
+   * Task 9, against a real engine run of an open {@code QueueNode} model. Task 7's original
+   * single-attribute Queue writer (for open queue nodes) emitted a shape the engine's reflective
+   * loader rejects with {@code LoadException} -&gt; {@code NoSuchMethodException} on
+   * {@code jmt.engine.NodeSections.Queue.<init>}; every open-queue caller now goes through this
+   * full-constructor shape instead, parameterized by {@code sizeValue} so finite-capacity
+   * {@code QueueNode}s keep their existing size/drop semantics while delay/fork/branch callers
+   * keep passing {@code "-1"}.
    */
-  private void writeInfiniteQueueSection(Element node, NetworkModel model, String dropStrategyValue) {
+  private void writeQueueSectionFull(Element node, NetworkModel model, String sizeValue, String dropStrategyValue) {
     Element section = Xml.child(node, "section", "className", "Queue");
-    Xml.textEl(Xml.child(section, "parameter", "classPath", "java.lang.Integer", "name", "size"), "value", "-1");
+    Xml.textEl(Xml.child(section, "parameter", "classPath", "java.lang.Integer", "name", "size"), "value", sizeValue);
     Element drop = Xml.child(section, "parameter",
         "classPath", "java.lang.String", "name", "dropStrategies", "array", "true");
     for (JobClass c : model.classes()) {
@@ -242,7 +249,7 @@ public class JsimgWriter {
    */
   private void writeForkJoin(Element sim, Element forkNodeEl, NetworkModel model, ForkJoinNode fj) {
     checkBranchClassConsistency(fj);
-    writeInfiniteQueueSection(forkNodeEl, model, "waiting queue");
+    writeQueueSectionFull(forkNodeEl, model, "-1", "waiting queue");
     Xml.child(forkNodeEl, "section", "className", "ServiceTunnel");
     Element fork = Xml.child(forkNodeEl, "section", "className", "Fork");
     Xml.textEl(Xml.child(fork, "parameter", "classPath", "java.lang.Integer", "name", "jobsPerLink"), "value", "1");
@@ -309,7 +316,7 @@ public class JsimgWriter {
     Branch b = fj.branches().get(index);
     String branchName = branchStationName(fj.name(), index);
     Element bnode = Xml.child(sim, "node", "name", branchName);
-    writeInfiniteQueueSection(bnode, model, "waiting queue");
+    writeQueueSectionFull(bnode, model, "-1", "waiting queue");
     Element server = Xml.child(bnode, "section", "className", "Server");
     Xml.textEl(Xml.child(server, "parameter", "classPath", "java.lang.Integer", "name", "maxJobs"), "value", "1");
     Element nov = Xml.child(server, "parameter",
@@ -393,21 +400,25 @@ public class JsimgWriter {
     Xml.child(node, "section", "className", "ServiceTunnel");
   }
 
-  private void writeQueueSection(Element node, QueueNode q) {
-    Element section = Xml.child(node, "section", "className", "Queue");
-    Xml.textEl(Xml.child(section, "parameter", "classPath", "java.lang.Integer", "name", "size"),
-        "value", q.capacity() == null ? "-1" : q.capacity().toString());
-    Xml.textEl(Xml.child(section, "parameter", "classPath", "java.lang.String", "name", "dropStrategy"),
-        "value", q.capacity() == null ? "waiting queue" : "drop");
-    // FCFS get/put strategies are the JMT defaults for the schema; scheduling honored on Server.
-  }
-
+  /**
+   * The {@code Server} section's {@code numberOfVisits} parameter must be the per-class
+   * array/refClass form ({@code Integer[]} keyed by class), not a bare scalar — verified against
+   * the real engine, matching {@link #writeBranchStation}'s Server section (Task 8, already
+   * confirmed to load). A scalar {@code numberOfVisits} is one of Task 7's minimal-shape mistakes
+   * that the real loader rejects.
+   */
   private void writeServer(Element node, QueueNode q) {
     Element section = Xml.child(node, "section", "className", "Server");
     Xml.textEl(Xml.child(section, "parameter", "classPath", "java.lang.Integer", "name", "maxJobs"),
         "value", Integer.toString(q.servers()));
-    Xml.textEl(Xml.child(section, "parameter", "classPath", "java.lang.Integer", "name", "numberOfVisits"),
-        "value", "0");
+    Element nov = Xml.child(section, "parameter",
+        "classPath", "java.lang.Integer", "name", "numberOfVisits", "array", "true");
+    for (String className : q.service().keySet()) {
+      Element rc = Xml.child(nov, "refClass");
+      rc.appendChild(rc.getOwnerDocument().createTextNode(className));
+      Xml.textEl(Xml.child(nov, "subParameter", "classPath", "java.lang.Integer", "name", "numberOfVisits"),
+          "value", "1");
+    }
     Element svc = Xml.child(section, "parameter",
         "classPath", "jmt.engine.NetStrategies.ServiceStrategy",
         "name", "ServiceStrategy", "array", "true");
