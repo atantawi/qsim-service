@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<solutions modelName="mm1" solutionMethod="simulation">
+  <measure measureType="Utilization" station="q" class="web"
+           meanValue="0.5012" lowerLimit="0.4901" upperLimit="0.5123"
+           successful="true" analyzedSamples="45000" discardedSamples="1200"
+           precision="0.0221" alfa="0.95" maxSamples="1000000" nodeType="station"
+           variance="0.0011" standardDeviation="0.0331"/>
+  <measure measureType="Response Time" station="fj__join" class="web"
+           meanValue="0.83" lowerLimit="0.79" upperLimit="0.87"
+           successful="false" analyzedSamples="1000000" discardedSamples="0"
+           precision="0.12" alfa="0.99" maxSamples="1000000" nodeType="station"
+           variance="0.04" standardDeviation="0.2"/>
+</solutions>
