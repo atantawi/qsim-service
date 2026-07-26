@@ -59,13 +59,23 @@ public class SolutionsParser {
         Element m = (Element) measures.item(i);
         boolean success = Boolean.parseBoolean(m.getAttribute("successful"));
         completed &= success;
+        // JMT's terminal-simulation output has been observed to report lowerLimit/upperLimit
+        // swapped relative to their names (see Task 11 investigation); normalize here so a
+        // confidence interval we hand to clients always satisfies lower <= upper.
+        Double lower = parseD(m.getAttribute("lowerLimit"));
+        Double upper = parseD(m.getAttribute("upperLimit"));
+        if (lower != null && upper != null && lower > upper) {
+          Double swap = lower;
+          lower = upper;
+          upper = swap;
+        }
         results.add(new MeasureResult(
             domainStation(m.getAttribute("station")),
             m.getAttribute("class"),
             REVERSE.getOrDefault(m.getAttribute("measureType"), m.getAttribute("measureType")),
             parseD(m.getAttribute("meanValue")),
-            parseD(m.getAttribute("lowerLimit")),
-            parseD(m.getAttribute("upperLimit")),
+            lower,
+            upper,
             significance(m.getAttribute("alfa")),
             parseD(m.getAttribute("precision")),
             success,

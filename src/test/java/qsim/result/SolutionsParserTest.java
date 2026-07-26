@@ -16,6 +16,7 @@ package qsim.result;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.net.URL;
@@ -61,5 +62,18 @@ class SolutionsParserTest {
   void completedFalseWhenAnyMeasureUnsuccessful() throws Exception {
     SolutionsParser.Parsed p = new SolutionsParser().parse(resource("/results/mm1.solutions.xml"));
     assertFalse(p.completed());                   // second measure (fj__join) has successful="false"
+  }
+
+  @Test
+  void invertedLowerUpperAreNormalizedSoLowerNeverExceedsUpper() throws Exception {
+    // Mimics real terminal-simulation JMT output where lowerLimit/upperLimit are swapped
+    // relative to their names (see Task 11 investigation).
+    SolutionsParser.Parsed p = new SolutionsParser().parse(resource("/results/inverted-bounds.solutions.xml"));
+    assertEquals(1, p.measures().size());
+
+    MeasureResult u = p.measures().get(0);
+    assertTrue(u.lower() <= u.upper(), "lower must not exceed upper after normalization");
+    assertEquals(0.4297696235625058, u.lower()); // the smaller raw value (raw upperLimit attribute)
+    assertEquals(0.5250552074712409, u.upper()); // the larger raw value (raw lowerLimit attribute)
   }
 }
