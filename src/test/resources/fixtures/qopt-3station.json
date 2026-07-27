@@ -1,0 +1,33 @@
+{
+  "model": {
+    "name": "qopt-3station",
+    "classes": [{ "name": "web", "type": "open" }],
+    "nodes": [
+      { "name": "src", "type": "source",
+        "arrivals": { "web": { "distribution": { "type": "exponential", "rate": 1.0 } } } },
+      { "name": "mm1", "type": "queue", "servers": 1, "scheduling": "fcfs", "capacity": null,
+        "service": { "web": { "distribution": { "type": "exponential", "rate": 3.0 } } } },
+      { "name": "md1", "type": "queue", "servers": 1, "scheduling": "fcfs", "capacity": null,
+        "service": { "web": { "distribution": { "type": "deterministic", "value": 0.25 } } } },
+      { "name": "fj", "type": "fork-join",
+        "branches": [
+          { "service": { "web": { "distribution": { "mean": 0.2, "scv": 1.5 } } } },
+          { "service": { "web": { "distribution": { "mean": 0.1, "scv": 0.5 } } } }
+        ],
+        "join": "all" },
+      { "name": "snk", "type": "sink" }
+    ],
+    "routing": {
+      "web": [
+        { "from": "src", "to": "mm1" },
+        { "from": "mm1", "to": "md1" },
+        { "from": "md1", "to": "fj" },
+        { "from": "fj",  "to": "snk" }
+      ]
+    }
+  },
+  "seed": 20260726,
+  "stopping": { "alpha": 0.05, "precision": 0.05, "minSamples": 20000, "maxSamples": 1000000,
+                "maxWallClockSeconds": 120 },
+  "measures": ["utilization", "throughput", "response-time", "system-response-time"]
+}

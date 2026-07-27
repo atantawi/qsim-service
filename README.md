@@ -1,54 +1,75 @@
 # qsim-service
 
-A small, stateless HTTP/JSON service that runs a single discrete-event simulation of a
-queueing network using the headless simulation engine of
-[JMT (Java Modelling Tools)](https://jmt.sourceforge.net/) and returns per-station /
-per-class performance measures with confidence intervals.
+A small, stateless HTTP/JSON service that runs one discrete-event simulation of a
+queueing network using the headless [JMT](https://jmt.sourceforge.net/) engine and
+returns per-station / per-class performance measures with confidence intervals.
 
-**Status:** design phase. See the authoritative design spec:
-[`docs/superpowers/specs/2026-07-25-qsim-service-design.md`](docs/superpowers/specs/2026-07-25-qsim-service-design.md).
+**License: GPL v2 or later.** This service links JMT (GPL) in-process, so it is a GPL
+derivative. It is consumed over HTTP as a plain JSON API — callers (e.g. an Apache-2.0
+optimizer) never touch JMT code. See `NOTICE`.
 
-## Why
+## Build
 
-It exists to let optimizers and analyses run against a **close-to-system** (simulated)
-queueing environment instead of only closed-form analytic approximations. Its first
-consumer is `quantum-optimizer` (`qopt`), which uses it as a black-box optimization backend
-through the JSON contract below; the analytic models are kept alongside as a
-validity / robustness cross-check.
-
-## Interface (summary)
-
-A single synchronous, blocking endpoint (plus `GET /health`):
-
-```
-POST /simulate
+```bash
+mvn package            # runs the full test suite (requires the JMT engine, headless)
 ```
 
-- **Request:** a JMT-agnostic, domain-level queueing-network model — mixed open/closed
-  classes; multiple sources/sinks; `queue` / `fork-join` / `delay` / `source` / `sink`
-  nodes; probabilistic routing; named or moment-based (mean + SCV) distributions — plus a
-  `seed` and a `stopping` object (per-measure CI target, sample/time/event caps, wall-clock
-  watchdog).
-- **Response:** per-(station × class) measures, each with `mean`, confidence interval,
-  sample counts, and variance.
+The unmodified `JMT-singlejar-1.4.0.jar` is bundled in `lib/` and referenced as a
+system-scoped Maven dependency.
 
-One request is **one simulation run (one seed)**. Running many replications and aggregating
-them is the caller's responsibility (e.g. multiple containers with different seeds); the
-returned per-run detail is sufficient for correct independent-replications aggregation.
+## Run
 
-See the design spec for the full request/response schemas, contract invariants, the
-domain → JSIMG translation, and the moment → distribution mapping.
+```bash
+docker build -t qsim-service:0.1.0 .
+docker run --rm -p 8080:8080 qsim-service:0.1.0
+```
 
-## Build & run
+Configuration via env vars: `QSIM_PORT` (default 8080), `QSIM_DEFAULT_ALPHA`,
+`QSIM_DEFAULT_PRECISION`, `QSIM_DEFAULT_MIN_SAMPLES`, `QSIM_DEFAULT_MAX_SAMPLES`,
+`QSIM_DEFAULT_MAX_WALLCLOCK_SECONDS`, `QSIM_TEMP_DIR`.
 
-_To be defined by the implementation plan._ Target stack: Java 17, Maven, JDK
-`com.sun.net.httpserver` + Jackson, packaged as a headless container
-(`eclipse-temurin:17-jre`, `-Djava.awt.headless=true`), bundling `JMT-singlejar-1.4.0.jar`.
+## API
 
-## License
+### `GET /health` → `{"status":"ok"}`
 
-**GNU General Public License v2 (or later)** — see [`LICENSE`](LICENSE).
+### `POST /simulate`
 
-This service links JMT engine classes in-process and therefore is a GPL derivative work.
-JMT is © its authors and distributed under GPL v2-or-later. Consumers interact with this
-service only over HTTP/JSON and are unaffected by its license.
+Request and response contract: see the design spec at
+`docs/superpowers/specs/2026-07-25-qsim-service-design.md` §5. Minimal M/M/1 example:
+
+```bash
+curl -X POST localhost:8080/simulate -H 'Content-Type: application/json' -d '{
+  "model": {
+    "name": "mm1",
+    "classes": [{"name":"web","type":"open"}],
+    "nodes": [
+      {"name":"src","type":"source","arrivals":{"web":{"distribution":{"type":"exponential","rate":1.0}}}},
+      {"name":"q","type":"queue","servers":1,"scheduling":"fcfs","service":{"web":{"distribution":{"type":"exponential","rate":2.0}}}},
+      {"name":"snk","type":"sink"}
+    ],
+    "routing": {"web":[{"from":"src","to":"q"},{"from":"q","to":"snk"}]}
+  },
+  "seed": 12345,
+  "measures": ["utilization","response-time","throughput"]
+}'
+```
+
+Each response measure carries `mean`, CI (`lower`/`upper`), `alpha`, `precision`,
+`success`, `samplesAnalyzed`, `samplesDiscarded`, `variance`, `stdDev`. `completed:false`
+means a cap fired before all CIs converged — the caller decides whether to trust or re-run.
+
+**Distributions:** named (`{"type":"exponential","rate":r}`, `{"type":"deterministic","value":v}`)
+or moment form (`{"mean":m,"scv":c}` → Exponential/Deterministic/Gamma). v1 implements these
+three forms; the remaining JMT named distributions are a mechanical registry extension.
+
+**Replication:** one request = one seed = one run. Run many seeds (e.g. many containers) and
+aggregate per the independent-replications method (design spec §9).
+
+## Error responses
+
+| Status | Meaning |
+|--------|---------|
+| 400 | Malformed JSON, or unsupported measure type |
+| 422 | Semantic model error (dangling routing, open class without a source, probabilities not summing to 1) or JSIMG schema failure |
+| 500 | Simulation engine failure |
+| 200 + `completed:false` | Watchdog fired before convergence — partial measures |

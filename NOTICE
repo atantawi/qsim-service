@@ -1,0 +1,18 @@
+qsim-service
+Copyright (C) 2026 the qsim-service authors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 2 of the License, or (at your option) any later
+version. See the LICENSE file for the full text.
+
+This product bundles and links, in-process, the following GPL software:
+
+  Java Modelling Tools (JMT) 1.4.0 — https://jmt.sourceforge.net/
+  Copyright (C) the JMT authors. Licensed under the GNU GPL v2 or later.
+  The bundled artifact (lib/JMT-singlejar-1.4.0.jar) is unmodified.
+
+Because this service links JMT engine classes in-process, it is a derivative
+work and is therefore distributed under the GPL (v2 or later). The complete
+corresponding source for this service is the contents of this repository.
+Source for JMT is available from the JMT project at the URL above.
