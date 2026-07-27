@@ -6,9 +6,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -53,9 +55,16 @@ func main() {
 	if url == "" {
 		url = "http://localhost:8080"
 	}
-	tmplBytes, err := os.ReadFile(filepath.Join("..", "request-template.json"))
+	// Resolve the template relative to this source file (like the bash/python
+	// drivers), so the program works regardless of the caller's directory.
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		fatal("cannot determine source file location")
+	}
+	tmplPath := filepath.Join(filepath.Dir(thisFile), "..", "request-template.json")
+	tmplBytes, err := os.ReadFile(tmplPath)
 	if err != nil {
-		fatal("read template: %v", err)
+		fatal("read template %s: %v", tmplPath, err)
 	}
 	tmpl := string(tmplBytes)
 	client := &http.Client{Timeout: 300 * time.Second}
@@ -69,13 +78,18 @@ func main() {
 			for seed := 1; seed <= seeds; seed++ {
 				body := strings.NewReplacer(
 					"{{population}}", fmt.Sprintf("%d", n),
-					"{{repair_scv}}", fmt.Sprintf("%g", scv),
+					"{{repair_scv}}", fmt.Sprintf("%.17g", scv),
 					"{{seed}}", fmt.Sprintf("%d", seed),
 				).Replace(tmpl)
 
 				resp, err := client.Post(url+"/simulate", "application/json", bytes.NewBufferString(body))
 				if err != nil {
 					fatal("POST N=%d cov=%g seed=%d: %v", n, cov, seed, err)
+				}
+				if resp.StatusCode != http.StatusOK {
+					errBody, _ := io.ReadAll(resp.Body)
+					resp.Body.Close()
+					fatal("HTTP %d for N=%d cov=%g seed=%d: %s", resp.StatusCode, n, cov, seed, strings.TrimSpace(string(errBody)))
 				}
 				var sr simResponse
 				err = json.NewDecoder(resp.Body).Decode(&sr)

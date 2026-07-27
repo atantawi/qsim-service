@@ -15,13 +15,14 @@ POPS = [700, 800, 900, 950, 1000, 1050, 1100]
 COVS = [0.5, 1, 2, 4]
 SEEDS = 10  # average over independent seeds 1..SEEDS
 TEMPLATE = Path(__file__).resolve().parent.parent / "request-template.json"
+TEMPLATE_TEXT = TEMPLATE.read_text()  # static; read once, not per request
 
 
 def build_body(population, scv, seed):
-    text = TEMPLATE.read_text()
-    text = (text.replace("{{population}}", str(population))
-                .replace("{{repair_scv}}", repr(scv))
-                .replace("{{seed}}", str(seed)))
+    # "%.17g" matches the bash/go drivers so all three send byte-identical scv.
+    text = (TEMPLATE_TEXT.replace("{{population}}", str(population))
+                         .replace("{{repair_scv}}", format(scv, ".17g"))
+                         .replace("{{seed}}", str(seed)))
     return json.loads(text)
 
 
