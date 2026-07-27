@@ -1,0 +1,24 @@
+{
+  "model": {
+    "name": "machine-repairmen",
+    "classes": [
+      { "name": "machines", "type": "closed", "population": {{population}}, "referenceStation": "running" }
+    ],
+    "nodes": [
+      { "name": "running", "type": "delay",
+        "service": { "machines": { "distribution": { "mean": 1000, "scv": 1 } } } },
+      { "name": "repair", "type": "queue", "servers": 1, "scheduling": "fcfs", "capacity": null,
+        "service": { "machines": { "distribution": { "mean": 1, "scv": {{repair_scv}} } } } }
+    ],
+    "routing": {
+      "machines": [
+        { "from": "running", "to": "repair" },
+        { "from": "repair",  "to": "running" }
+      ]
+    }
+  },
+  "seed": {{seed}},
+  "stopping": { "alpha": 0.05, "precision": 0.05, "minSamples": 20000, "maxSamples": 1000000,
+                "maxWallClockSeconds": 60 },
+  "measures": ["queue-length"]
+}
