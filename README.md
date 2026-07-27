@@ -65,6 +65,17 @@ three forms; the remaining JMT named distributions are a mechanical registry ext
 **Replication:** one request = one seed = one run. Run many seeds (e.g. many containers) and
 aggregate per the independent-replications method (design spec §9).
 
+## Examples
+
+Worked, runnable examples live in [`examples/`](examples/). The
+[machine-repairmen](examples/machine-repairmen/) example drives a closed network — an
+infinite-server delay station feeding a single-server FCFS repair queue — three
+equivalent ways: [bash/curl](examples/machine-repairmen/bash/),
+[python](examples/machine-repairmen/python/) (with a plot), and
+[go](examples/machine-repairmen/go/). It also demonstrates the independent-replications
+workflow above (each point averaged over independent seeds). See
+[`expected-output.md`](examples/machine-repairmen/expected-output.md) for a sample run.
+
 ## Error responses
 
 | Status | Meaning |
