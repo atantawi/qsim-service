@@ -4,7 +4,11 @@ WORKDIR /src
 # Bring in the bundled JMT jar first so the system-scope dependency resolves.
 COPY lib/ lib/
 COPY pom.xml .
-RUN mvn -q -o -DskipTests dependency:go-offline || mvn -q -DskipTests dependency:go-offline
+# Warm the dependency cache for faster rebuilds. The system-scoped JMT jar is
+# provided via systemPath (see pom.xml) and can't be resolved from a repository,
+# so it's excluded here and this step is intentionally non-fatal — `mvn package`
+# re-resolves anything missing anyway.
+RUN mvn -q -DskipTests -DexcludeArtifactIds=jmt-singlejar dependency:go-offline || true
 COPY src/ src/
 # Package + copy runtime dependencies (see pom dependency-plugin, Task 1).
 RUN mvn -q -DskipTests package
