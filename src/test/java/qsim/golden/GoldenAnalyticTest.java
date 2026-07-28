@@ -87,10 +87,12 @@ class GoldenAnalyticTest {
 
   @Test
   void momentGammaBracketsPkFormula() {
-    double lambda = 1.0, mean = 0.5, scv = 2.0;
+    // mean*scv != 1 so that Gamma scale (0.5) and rate (2.0) differ — at mean=0.5, scv=2.0 they
+    // coincide and this test cannot see a convention flip. See GammaConventionTest.
+    double lambda = 1.0, mean = 0.25, scv = 2.0;
     SimulationResponse r = service.simulate(mg1(lambda, moment(mean, scv)));
-    assertBrackets(pick(r, "utilization"), lambda * mean);       // 0.5 (mean check)
-    assertBrackets(pick(r, "response-time"), pkResponseTime(lambda, mean, scv)); // 1.25 (mean + SCV)
+    assertBrackets(pick(r, "utilization"), lambda * mean);       // 0.25 (mean check)
+    assertBrackets(pick(r, "response-time"), pkResponseTime(lambda, mean, scv)); // 0.375 (mean + SCV)
   }
 
   @Test
