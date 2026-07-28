@@ -59,12 +59,15 @@ class DistributionResolverTest {
 
   @Test
   void momentGeneralScvIsGamma() {
-    CanonicalDistribution c = resolver.resolve(new Distribution(null, null, null, 0.5, 2.0));
+    // mean*scv != 1 on purpose: JMT's GammaDistr samples with SCALE semantics, so beta must be
+    // the scale mean*scv (2.0) and NOT the rate 1/(mean*scv) (0.5). Any case where mean*scv == 1
+    // makes scale and rate numerically identical and so cannot detect a convention flip.
+    CanonicalDistribution c = resolver.resolve(new Distribution(null, null, null, 0.5, 4.0));
     assertEquals("jmt.engine.random.GammaDistr", c.distributionClass());
     assertEquals("alpha", c.params().get(0).name());
-    assertEquals("0.5", c.params().get(0).value());  // 1/scv
+    assertEquals("0.25", c.params().get(0).value()); // 1/scv
     assertEquals("beta", c.params().get(1).name());
-    assertEquals("1.0", c.params().get(1).value());  // mean*scv
+    assertEquals("2.0", c.params().get(1).value());  // mean*scv (scale), not 0.5 (rate)
   }
 
   @Test

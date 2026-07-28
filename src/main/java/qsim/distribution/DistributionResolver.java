@@ -59,6 +59,12 @@ public class DistributionResolver {
     if (scv == 0.0) {
       return deterministic(mean);
     }
+    // Gamma in shape/SCALE form: alpha = shape, beta = scale (NOT rate).
+    // JMT's GammaDistrPar names its second field "lambda", which suggests a rate, but
+    // GammaDistr.nextRand and pdf both use it as a scale: E[X] = alpha*beta, Var = alpha*beta^2.
+    // (GammaDistr.theorMean/theorVariance do use the rate convention and are therefore wrong,
+    // but nothing in jmt.engine or here calls them.) With scale semantics this mapping inverts
+    // the moments exactly: mean = alpha*beta = mean, scv = 1/alpha = scv.
     double alpha = 1.0 / scv;
     double beta = mean * scv;
     return new CanonicalDistribution("jmt.engine.random.GammaDistr",
