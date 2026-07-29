@@ -63,6 +63,12 @@ the time from the job splitting to all required branches having rejoined — not
 the join's own residence time. Per-branch numbers are not reported separately; a fork-join's
 measures come back under its own node name.
 
+> **Caveat:** `response-time` is currently the *only* measure with fork-join-region semantics.
+> `queue-length`, `residence-time`, `queue-time`, `utilization`, `throughput` and `drop-rate` on a
+> fork-join node are measured at its internal join station, so e.g. `queue-length` is the join's
+> synchronization backlog rather than the fork-join's in-flight population. Do not read those as
+> region figures — see [#8](https://github.com/atantawi/qsim-service/issues/8).
+
 **Distributions:** named (`{"type":"exponential","rate":r}`, `{"type":"deterministic","value":v}`)
 or moment form (`{"mean":m,"scv":c}` → Exponential/Deterministic/Gamma). v1 implements these
 three forms; the remaining JMT named distributions are a mechanical registry extension.
