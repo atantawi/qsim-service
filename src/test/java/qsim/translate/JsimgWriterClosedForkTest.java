@@ -102,6 +102,49 @@ class JsimgWriterClosedForkTest {
     assertDoesNotThrow(() -> writer.validate(doc));
   }
 
+  /**
+   * The fork-join measure types are the exception to the join remap: the engine keeps a fork-join's
+   * job list on the *fork* station's input section, so they must stay anchored on the domain name.
+   */
+  @Test
+  void forkJoinMeasureTypeStaysOnForkStation() throws Exception {
+    var measure = new MeasureSpec("fj_web_rt", "Fork Join Response Time", "fj", "web", "station");
+    Document doc = writer.toDocument(forkNet(), stopping(), 7L, List.of(measure));
+    XPath xp = XPathFactory.newInstance().newXPath();
+    assertEquals("fj", xp.evaluate("/sim/measure[@name='fj_web_rt']/@referenceNode", doc));
+    assertDoesNotThrow(() -> writer.validate(doc));
+  }
+
+  /**
+   * A fork-join measure type only means anything on a fork-join node: JMT would attach it to a
+   * plain station's fork-join job list, which never fills, yielding a zero-sample measure rather
+   * than an error. Reject it here instead of shipping another silent wrong answer (issue #6).
+   */
+  @Test
+  void forkJoinMeasureTypeOnPlainStationIsRejected() {
+    var measure = new MeasureSpec("q_batch_rt", "Fork Join Response Time", "q", "batch", "station");
+    ValidationException ex = assertThrows(ValidationException.class,
+        () -> writer.toDocument(closedNet(), stopping(), 7L, List.of(measure)));
+    assertEquals(ValidationException.Kind.UNPROCESSABLE, ex.kind());
+    assertTrue(ex.getMessage().contains("Fork Join Response Time"));
+    // Quoted, so a reworded message containing "requires"/"unique"/"sequence" cannot satisfy this
+    // by accident and silently stop checking that the offending node is named.
+    assertTrue(ex.getMessage().contains("'q'"), ex.getMessage());
+  }
+
+  /** Checked up front over the whole list, so one bad spec does not mask the next. */
+  @Test
+  void everyMisplacedForkJoinMeasureIsReported() {
+    var bad = List.of(
+        new MeasureSpec("q_batch_rt", "Fork Join Response Time", "q", "batch", "station"),
+        new MeasureSpec("think_batch_rt", "Fork Join Response Time", "think", "batch", "station"));
+    ValidationException ex = assertThrows(ValidationException.class,
+        () -> writer.toDocument(closedNet(), stopping(), 7L, bad));
+    assertEquals(2, ex.details().size(), ex.getMessage());
+    assertTrue(ex.getMessage().contains("'q'"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("'think'"), ex.getMessage());
+  }
+
   @Test
   void forkJoinWithMismatchedBranchClassesIsRejected() {
     NetworkModel model = new NetworkModel("fork",

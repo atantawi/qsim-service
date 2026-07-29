@@ -58,6 +58,17 @@ class SolutionsParserTest {
     assertEquals("utilization", noStrip.type());
   }
 
+  /** The fork-join response time is what a caller asked for as "response-time" on that node. */
+  @Test
+  void forkJoinResponseTimeReversesToResponseTime() throws Exception {
+    SolutionsParser.Parsed p = new SolutionsParser().parse(resource("/results/fork-join.solutions.xml"));
+    assertEquals(1, p.measures().size());
+    MeasureResult rt = p.measures().get(0);
+    assertEquals("fj", rt.station());
+    assertEquals("response-time", rt.type());
+    assertEquals(0.2884507654809945, rt.mean());
+  }
+
   @Test
   void completedFalseWhenAnyMeasureUnsuccessful() throws Exception {
     SolutionsParser.Parsed p = new SolutionsParser().parse(resource("/results/mm1.solutions.xml"));

@@ -107,6 +107,52 @@ class GoldenAnalyticTest {
     }
   }
 
+  /**
+   * The measure a caller actually asks for: {@code response-time} on the fork-join node itself.
+   * In a network whose only service is the fork-join, the fork-join response time IS the system
+   * response time, so {@code system-response-time} is an exact oracle for it — and the rigorous
+   * bound T_FJ >= max branch E[T] pins the direction of any error. Both assertions fail while a
+   * fork-join {@code response-time} is taken as a station measure at the internal join station,
+   * which reports only the per-sibling synchronization wait (issue #6).
+   */
+  @Test
+  void forkJoinNodeResponseTimeIsTheForkToJoinSojourn() {
+    double lambda = 1.0;
+    NetworkModel m = new NetworkModel("fj-rt",
+        List.of(new JobClass("web", "open", null, null)),
+        List.of(new SourceNode("src", "source",
+                    Map.of("web", new ArrivalSpec(named("exponential", lambda)))),
+                new ForkJoinNode("fj", "fork-join",
+                    List.of(new Branch(Map.of("web", new ServiceSpec(named("exponential", 5.0)))),
+                            new Branch(Map.of("web", new ServiceSpec(named("exponential", 10.0))))),
+                    "all"),
+                new SinkNode("snk", "sink")),
+        Map.of("web", List.of(new RoutingEdge("src", "fj", null), new RoutingEdge("fj", "snk", null))));
+    Stopping s = new Stopping(0.05, 0.03, 50_000, 2_000_000, null, null, 120, false);
+    SimulationResponse r = service.simulate(new SimulationRequest(m, 20260729L, s,
+        List.of("response-time", "system-response-time")));
+
+    MeasureResult fj = r.measures().stream()
+        .filter(x -> x.type().equals("response-time") && x.station().equals("fj"))
+        .findFirst().orElseThrow(() -> new AssertionError("no response-time for station fj"));
+    MeasureResult sys = r.measures().stream()
+        .filter(x -> x.type().equals("system-response-time"))
+        .findFirst().orElseThrow();
+
+    // The fork-join is the whole network: the two must be the same measurement. Equality is exact,
+    // not approximate, and deliberately asserted that way: the two accumulators (the fork station's
+    // fork-join job list vs the global job list) observe the same per-job sojourns under the same
+    // alpha/precision, so they converge on the same batch and the means agree bit-for-bit. Do not
+    // loosen this tolerance to paper over a divergence — a divergence means one of them stopped
+    // early or is measuring something else.
+    assertTrue(Math.abs(fj.mean() - sys.mean()) <= 1e-9,
+        "fork-join response-time=" + fj.mean() + " must equal system-response-time=" + sys.mean());
+    // T_FJ >= E[T] of the slower branch: M/M/1 at lambda=1, mu=5 => 1/(5-1) = 0.25.
+    double slowestBranchET = 1.0 / (5.0 - lambda);
+    assertTrue(fj.mean() >= slowestBranchET,
+        "fork-join response-time=" + fj.mean() + " must be >= slowest-branch E[T]=" + slowestBranchET);
+  }
+
   @Test
   void forkJoinResponseTimeRespectsLowerBound() {
     // 2-branch homogeneous fork-join; T_FJ >= single-branch E[T] (rigorous lower bound).

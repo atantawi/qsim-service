@@ -192,6 +192,19 @@ Measure `type` values (v1): `response-time`, `residence-time`, `queue-time`, `qu
 `utilization`, `throughput`, `arrival-rate`, `drop-rate`, plus system-level (`system-response-time`,
 `system-throughput`) and `fork-join-response-time`.
 
+> **As built** (correction, not a design change — the list above overstates what shipped). The
+> implemented set is `MeasureMapper.SUPPORTED`: `response-time`, `residence-time`, `queue-time`,
+> `queue-length`, `utilization`, `throughput`, `drop-rate`, `system-response-time`. Three entries
+> above were never implemented — `arrival-rate`, `system-throughput`, and `fork-join-response-time`.
+>
+> There is **no separate `fork-join-response-time` type**: `response-time` requested on a `fork-join`
+> node *is* the fork-to-join sojourn, translated to JMT's `"Fork Join Response Time"` measure anchored
+> on the fork station (issue #6). Every other station measure on a fork-join node is still taken at
+> the internal join station (issue #8).
+>
+> Also divergent: system-level measures come back with `station: ""`, not `station: "system"` as the
+> §5.2 example comment says.
+
 ### 5.3 Contract invariants (enforced by the contract layer)
 
 - Every **open** class is listed in **exactly one** source's `arrivals` (JMT anchors an open class
