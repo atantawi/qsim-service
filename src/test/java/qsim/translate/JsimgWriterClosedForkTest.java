@@ -127,7 +127,22 @@ class JsimgWriterClosedForkTest {
         () -> writer.toDocument(closedNet(), stopping(), 7L, List.of(measure)));
     assertEquals(ValidationException.Kind.UNPROCESSABLE, ex.kind());
     assertTrue(ex.getMessage().contains("Fork Join Response Time"));
-    assertTrue(ex.getMessage().contains("q"));
+    // Quoted, so a reworded message containing "requires"/"unique"/"sequence" cannot satisfy this
+    // by accident and silently stop checking that the offending node is named.
+    assertTrue(ex.getMessage().contains("'q'"), ex.getMessage());
+  }
+
+  /** Checked up front over the whole list, so one bad spec does not mask the next. */
+  @Test
+  void everyMisplacedForkJoinMeasureIsReported() {
+    var bad = List.of(
+        new MeasureSpec("q_batch_rt", "Fork Join Response Time", "q", "batch", "station"),
+        new MeasureSpec("think_batch_rt", "Fork Join Response Time", "think", "batch", "station"));
+    ValidationException ex = assertThrows(ValidationException.class,
+        () -> writer.toDocument(closedNet(), stopping(), 7L, bad));
+    assertEquals(2, ex.details().size(), ex.getMessage());
+    assertTrue(ex.getMessage().contains("'q'"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("'think'"), ex.getMessage());
   }
 
   @Test

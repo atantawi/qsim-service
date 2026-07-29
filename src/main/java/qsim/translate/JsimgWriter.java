@@ -39,6 +39,7 @@ public class JsimgWriter {
   }
 
   public Document toDocument(NetworkModel model, Stopping stopping, long seed, List<MeasureSpec> measures) {
+    checkMeasures(model, measures);
     Document doc = Xml.newDocument();
     Element sim = Xml.child(doc, "sim",
         "name", model.name(),
@@ -576,17 +577,11 @@ public class JsimgWriter {
    * <p>{@link MeasureMapper#FORK_JOIN_TYPES} are the exception: JMT's dedicated fork-join measures
    * are collected from the job list the *fork* station's input section maintains between fork and
    * join, so remapping them onto the join station would silently measure the wrong thing
-   * (issue #6). Those stay on the domain name, which is already the fork station — and are rejected
-   * outright on any other node type, because the engine would happily attach them to a plain
-   * station's never-filled fork-join list and report a zero-sample measure instead of failing.
+   * (issue #6). Those stay on the domain name, which is already the fork station; that the node
+   * really is a fork-join has been established by {@link #checkMeasures} before any writing starts.
    */
   private static String expandedMeasureNode(NetworkModel model, MeasureSpec m) {
     if (MeasureMapper.FORK_JOIN_TYPES.contains(m.jmtType())) {
-      if (!(nodeNamed(model, m.referenceNode()) instanceof ForkJoinNode)) {
-        throw new ValidationException(ValidationException.Kind.UNPROCESSABLE,
-            List.of("measure type '" + m.jmtType() + "' applies only to a fork-join node, but '"
-                + m.referenceNode() + "' is not one"));
-      }
       return m.referenceNode();
     }
     for (Node n : model.nodes()) {
@@ -597,7 +592,31 @@ public class JsimgWriter {
     return m.referenceNode();
   }
 
-  /** The model node with this name, or {@code null} (system-level measures carry no node). */
+  /**
+   * A fork-join measure type is only meaningful on a fork-join node: JMT collects it from the job
+   * list the *fork* station's input section maintains between fork and join, and on any other
+   * station would attach it to a never-filled list and report a zero-sample measure rather than
+   * failing (issue #6). Checked up front — like {@link #checkBranchClassConsistency} — so a bad
+   * spec cannot reach serialization and {@link #expandedMeasureNode} stays a pure mapping.
+   */
+  private static void checkMeasures(NetworkModel model, List<MeasureSpec> measures) {
+    if (measures == null) {
+      return;
+    }
+    List<String> details = new ArrayList<>();
+    for (MeasureSpec m : measures) {
+      if (MeasureMapper.FORK_JOIN_TYPES.contains(m.jmtType())
+          && !(nodeNamed(model, m.referenceNode()) instanceof ForkJoinNode)) {
+        details.add("measure type '" + m.jmtType() + "' applies only to a fork-join node, but '"
+            + m.referenceNode() + "' is not one");
+      }
+    }
+    if (!details.isEmpty()) {
+      throw new ValidationException(ValidationException.Kind.UNPROCESSABLE, details);
+    }
+  }
+
+  /** The model node with this name, or {@code null} if the model has no such node. */
   private static Node nodeNamed(NetworkModel model, String name) {
     for (Node n : model.nodes()) {
       if (n.name().equals(name)) {
