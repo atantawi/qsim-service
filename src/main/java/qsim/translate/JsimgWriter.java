@@ -558,7 +558,7 @@ public class JsimgWriter {
     Xml.child(sim, "measure",
         "name", m.name(),
         "type", m.jmtType(),
-        "referenceNode", expandedMeasureNode(model, m.referenceNode()),
+        "referenceNode", expandedMeasureNode(model, m),
         "referenceUserClass", m.referenceUserClass(),
         "nodeType", m.nodeType(),
         "alpha", alpha,
@@ -572,14 +572,22 @@ public class JsimgWriter {
    * fork/branch/join expansion and sets {@code referenceNode} to the fork-join's domain name, which
    * is the JSIMG fork node — the *entry* of the fork-join, not its exit. Confined to the writer per
    * the brief's design decision so Task 6 stays agnostic of Task 8's expansion.
+   *
+   * <p>{@link MeasureMapper#FORK_JOIN_TYPES} are the exception: JMT's dedicated fork-join measures
+   * are collected from the job list the *fork* station's input section maintains between fork and
+   * join, so remapping them onto the join station would silently measure the wrong thing
+   * (issue #6). Those stay on the domain name, which is already the fork station.
    */
-  private static String expandedMeasureNode(NetworkModel model, String name) {
+  private static String expandedMeasureNode(NetworkModel model, MeasureSpec m) {
+    if (MeasureMapper.FORK_JOIN_TYPES.contains(m.jmtType())) {
+      return m.referenceNode();
+    }
     for (Node n : model.nodes()) {
-      if (n instanceof ForkJoinNode fj && fj.name().equals(name)) {
+      if (n instanceof ForkJoinNode fj && fj.name().equals(m.referenceNode())) {
         return joinStationName(fj.name());
       }
     }
-    return name;
+    return m.referenceNode();
   }
 
   // ---- XSD validation ------------------------------------------------------

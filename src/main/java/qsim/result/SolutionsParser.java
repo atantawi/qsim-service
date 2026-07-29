@@ -39,7 +39,11 @@ public class SolutionsParser {
       Map.entry("Utilization", "utilization"),
       Map.entry("Throughput", "throughput"),
       Map.entry("Drop Rate", "drop-rate"),
-      Map.entry("System Response Time", "system-response-time"));
+      Map.entry("System Response Time", "system-response-time"),
+      // A fork-join node's "response-time" is requested as JMT's dedicated fork-region measure
+      // (see MeasureMapper.FORK_JOIN_STATION / issue #6); it comes back under the domain node name
+      // because that measure is anchored on the fork station, so no station remap is needed.
+      Map.entry("Fork Join Response Time", "response-time"));
 
   public Parsed parse(File output) {
     try {

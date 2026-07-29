@@ -66,6 +66,44 @@ class MeasureMapperTest {
     assertTrue(specs.stream().anyMatch(s -> s.jmtType().equals("Number of Customers")));
   }
 
+  /** Open fork-join: src -> fj(2 branches) -> sink. */
+  private NetworkModel forkModel() {
+    return new NetworkModel("m",
+        List.of(new JobClass("web", "open", null, null)),
+        List.of(new SourceNode("src", "source", Map.of("web", new ArrivalSpec(exp(1.0)))),
+                new ForkJoinNode("fj", "fork-join",
+                    List.of(new Branch(Map.of("web", new ServiceSpec(exp(5.0)))),
+                            new Branch(Map.of("web", new ServiceSpec(exp(10.0))))),
+                    "all"),
+                new SinkNode("snk", "sink")),
+        Map.of("web", List.of(new RoutingEdge("src", "fj", null), new RoutingEdge("fj", "snk", null))));
+  }
+
+  /**
+   * A station "Response Time" at a fork-join's Join station is only the per-sibling
+   * synchronization wait, not the fork->join sojourn; JMT has a dedicated measure type for the
+   * latter. Anchored on the fork-join's own name (the JSIMG Fork station), which is where the
+   * engine keeps the fork-join job list.
+   */
+  @Test
+  void responseTimeOnForkJoinUsesForkJoinMeasureType() {
+    List<MeasureSpec> specs = mapper.map(forkModel(), List.of("response-time"));
+    assertEquals(1, specs.size());
+    MeasureSpec s = specs.get(0);
+    assertEquals("Fork Join Response Time", s.jmtType());
+    assertEquals("fj", s.referenceNode());
+    assertEquals("web", s.referenceUserClass());
+    assertEquals("station", s.nodeType());
+  }
+
+  @Test
+  void responseTimeOnPlainStationKeepsStationMeasureType() {
+    List<MeasureSpec> specs = mapper.map(model(), List.of("response-time"));
+    assertEquals(1, specs.size());
+    assertEquals("Response Time", specs.get(0).jmtType());
+    assertEquals("q", specs.get(0).referenceNode());
+  }
+
   @Test
   void unknownMeasureRejected() {
     ValidationException ex = assertThrows(ValidationException.class,

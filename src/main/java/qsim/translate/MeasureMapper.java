@@ -31,6 +31,25 @@ public class MeasureMapper {
   private static final Map<String, String> STATION = new LinkedHashMap<>();
   // domain type -> JMT measure "type" string (system-level)
   private static final Map<String, String> SYSTEM = new LinkedHashMap<>();
+  /**
+   * Fork-join nodes: domain type -> JMT's dedicated fork-region measure string, overriding
+   * {@link #STATION}. A station-level {@code "Response Time"} taken anywhere inside the writer's
+   * fork/branch/join expansion measures a single station's residence time — at the join station
+   * that is only the per-sibling synchronization wait, which is not the fork-to-join sojourn a
+   * caller means by {@code response-time} on a fork-join node, and can even fall below a single
+   * branch's response time (issue #6). JMT tracks the sojourn under
+   * {@code SimConstants.FORK_JOIN_RESPONSE_TIME}, whose job list lives in the *fork* station's
+   * input section, so these measures stay anchored on the domain node name.
+   */
+  private static final Map<String, String> FORK_JOIN_STATION =
+      Map.of("response-time", "Fork Join Response Time");
+
+  /**
+   * JMT measure types that {@link JsimgWriter} must leave anchored on the fork station instead of
+   * remapping onto the internal join station.
+   */
+  static final Set<String> FORK_JOIN_TYPES = Set.copyOf(FORK_JOIN_STATION.values());
+
   static {
     STATION.put("response-time", "Response Time");
     STATION.put("residence-time", "Residence Time");
@@ -63,8 +82,9 @@ public class MeasureMapper {
       if (STATION.containsKey(t)) {
         String jmt = STATION.get(t);
         for (Node n : model.nodes()) {
+          String jmtForNode = n instanceof ForkJoinNode ? FORK_JOIN_STATION.getOrDefault(t, jmt) : jmt;
           for (String clazz : servedClasses(n)) {
-            specs.add(new MeasureSpec(n.name() + "_" + clazz + "_" + t, jmt,
+            specs.add(new MeasureSpec(n.name() + "_" + clazz + "_" + t, jmtForNode,
                 n.name(), clazz, "station"));
           }
         }

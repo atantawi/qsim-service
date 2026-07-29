@@ -58,6 +58,11 @@ Each response measure carries `mean`, CI (`lower`/`upper`), `alpha`, `precision`
 `success`, `samplesAnalyzed`, `samplesDiscarded`, `variance`, `stdDev`. `completed:false`
 means a cap fired before all CIs converged — the caller decides whether to trust or re-run.
 
+**Fork-join measures:** on a `fork-join` node, `response-time` is the whole fork-to-join sojourn —
+the time from the job splitting to all required branches having rejoined — not any one branch's or
+the join's own residence time. Per-branch numbers are not reported separately; a fork-join's
+measures come back under its own node name.
+
 **Distributions:** named (`{"type":"exponential","rate":r}`, `{"type":"deterministic","value":v}`)
 or moment form (`{"mean":m,"scv":c}` → Exponential/Deterministic/Gamma). v1 implements these
 three forms; the remaining JMT named distributions are a mechanical registry extension.

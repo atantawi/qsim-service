@@ -102,6 +102,19 @@ class JsimgWriterClosedForkTest {
     assertDoesNotThrow(() -> writer.validate(doc));
   }
 
+  /**
+   * The fork-join measure types are the exception to the join remap: the engine keeps a fork-join's
+   * job list on the *fork* station's input section, so they must stay anchored on the domain name.
+   */
+  @Test
+  void forkJoinMeasureTypeStaysOnForkStation() throws Exception {
+    var measure = new MeasureSpec("fj_web_rt", "Fork Join Response Time", "fj", "web", "station");
+    Document doc = writer.toDocument(forkNet(), stopping(), 7L, List.of(measure));
+    XPath xp = XPathFactory.newInstance().newXPath();
+    assertEquals("fj", xp.evaluate("/sim/measure[@name='fj_web_rt']/@referenceNode", doc));
+    assertDoesNotThrow(() -> writer.validate(doc));
+  }
+
   @Test
   void forkJoinWithMismatchedBranchClassesIsRejected() {
     NetworkModel model = new NetworkModel("fork",
