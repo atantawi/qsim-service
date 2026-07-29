@@ -115,6 +115,21 @@ class JsimgWriterClosedForkTest {
     assertDoesNotThrow(() -> writer.validate(doc));
   }
 
+  /**
+   * A fork-join measure type only means anything on a fork-join node: JMT would attach it to a
+   * plain station's fork-join job list, which never fills, yielding a zero-sample measure rather
+   * than an error. Reject it here instead of shipping another silent wrong answer (issue #6).
+   */
+  @Test
+  void forkJoinMeasureTypeOnPlainStationIsRejected() {
+    var measure = new MeasureSpec("q_batch_rt", "Fork Join Response Time", "q", "batch", "station");
+    ValidationException ex = assertThrows(ValidationException.class,
+        () -> writer.toDocument(closedNet(), stopping(), 7L, List.of(measure)));
+    assertEquals(ValidationException.Kind.UNPROCESSABLE, ex.kind());
+    assertTrue(ex.getMessage().contains("Fork Join Response Time"));
+    assertTrue(ex.getMessage().contains("q"));
+  }
+
   @Test
   void forkJoinWithMismatchedBranchClassesIsRejected() {
     NetworkModel model = new NetworkModel("fork",

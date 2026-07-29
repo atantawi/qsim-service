@@ -576,10 +576,17 @@ public class JsimgWriter {
    * <p>{@link MeasureMapper#FORK_JOIN_TYPES} are the exception: JMT's dedicated fork-join measures
    * are collected from the job list the *fork* station's input section maintains between fork and
    * join, so remapping them onto the join station would silently measure the wrong thing
-   * (issue #6). Those stay on the domain name, which is already the fork station.
+   * (issue #6). Those stay on the domain name, which is already the fork station — and are rejected
+   * outright on any other node type, because the engine would happily attach them to a plain
+   * station's never-filled fork-join list and report a zero-sample measure instead of failing.
    */
   private static String expandedMeasureNode(NetworkModel model, MeasureSpec m) {
     if (MeasureMapper.FORK_JOIN_TYPES.contains(m.jmtType())) {
+      if (!(nodeNamed(model, m.referenceNode()) instanceof ForkJoinNode)) {
+        throw new ValidationException(ValidationException.Kind.UNPROCESSABLE,
+            List.of("measure type '" + m.jmtType() + "' applies only to a fork-join node, but '"
+                + m.referenceNode() + "' is not one"));
+      }
       return m.referenceNode();
     }
     for (Node n : model.nodes()) {
@@ -588,6 +595,16 @@ public class JsimgWriter {
       }
     }
     return m.referenceNode();
+  }
+
+  /** The model node with this name, or {@code null} (system-level measures carry no node). */
+  private static Node nodeNamed(NetworkModel model, String name) {
+    for (Node n : model.nodes()) {
+      if (n.name().equals(name)) {
+        return n;
+      }
+    }
+    return null;
   }
 
   // ---- XSD validation ------------------------------------------------------

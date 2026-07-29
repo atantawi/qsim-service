@@ -60,5 +60,13 @@ class FixtureIntegrationTest {
         .filter(m -> m.station().equals("mm1") && m.type().equals("utilization")).findFirst().orElseThrow();
     assertTrue(umm1.lower() <= 1.0 / 3 && 1.0 / 3 <= umm1.upper(),
         "mm1 U CI must bracket 1/3");
+    // The fork-join's response-time is the fork-to-join sojourn, so it must exceed the slower
+    // branch's own service mean (0.2); the join station's synchronization wait does not (issue #6).
+    // This fixture is the shape of the request qopt actually sends.
+    MeasureResult fjRt = r.measures().stream()
+        .filter(m -> m.station().equals("fj") && m.type().equals("response-time"))
+        .findFirst().orElseThrow(() -> new AssertionError("no response-time for station fj"));
+    assertTrue(fjRt.mean() > 0.2,
+        "fork-join response-time=" + fjRt.mean() + " must exceed the slower branch mean 0.2");
   }
 }

@@ -139,7 +139,12 @@ class GoldenAnalyticTest {
         .filter(x -> x.type().equals("system-response-time"))
         .findFirst().orElseThrow();
 
-    // The fork-join is the whole network: the two must be the same measurement.
+    // The fork-join is the whole network: the two must be the same measurement. Equality is exact,
+    // not approximate, and deliberately asserted that way: the two accumulators (the fork station's
+    // fork-join job list vs the global job list) observe the same per-job sojourns under the same
+    // alpha/precision, so they converge on the same batch and the means agree bit-for-bit. Do not
+    // loosen this tolerance to paper over a divergence — a divergence means one of them stopped
+    // early or is measuring something else.
     assertTrue(Math.abs(fj.mean() - sys.mean()) <= 1e-9,
         "fork-join response-time=" + fj.mean() + " must equal system-response-time=" + sys.mean());
     // T_FJ >= E[T] of the slower branch: M/M/1 at lambda=1, mu=5 => 1/(5-1) = 0.25.

@@ -31,24 +31,6 @@ public class MeasureMapper {
   private static final Map<String, String> STATION = new LinkedHashMap<>();
   // domain type -> JMT measure "type" string (system-level)
   private static final Map<String, String> SYSTEM = new LinkedHashMap<>();
-  /**
-   * Fork-join nodes: domain type -> JMT's dedicated fork-region measure string, overriding
-   * {@link #STATION}. A station-level {@code "Response Time"} taken anywhere inside the writer's
-   * fork/branch/join expansion measures a single station's residence time — at the join station
-   * that is only the per-sibling synchronization wait, which is not the fork-to-join sojourn a
-   * caller means by {@code response-time} on a fork-join node, and can even fall below a single
-   * branch's response time (issue #6). JMT tracks the sojourn under
-   * {@code SimConstants.FORK_JOIN_RESPONSE_TIME}, whose job list lives in the *fork* station's
-   * input section, so these measures stay anchored on the domain node name.
-   */
-  private static final Map<String, String> FORK_JOIN_STATION =
-      Map.of("response-time", "Fork Join Response Time");
-
-  /**
-   * JMT measure types that {@link JsimgWriter} must leave anchored on the fork station instead of
-   * remapping onto the internal join station.
-   */
-  static final Set<String> FORK_JOIN_TYPES = Set.copyOf(FORK_JOIN_STATION.values());
 
   static {
     STATION.put("response-time", "Response Time");
@@ -61,11 +43,39 @@ public class MeasureMapper {
     SYSTEM.put("system-response-time", "System Response Time");
   }
 
+  /**
+   * Fork-join nodes: domain type -> JMT's dedicated fork-region measure string, overriding
+   * {@link #STATION}. A station-level {@code "Response Time"} taken anywhere inside the writer's
+   * fork/branch/join expansion measures a single station's residence time — at the join station
+   * that is only the per-sibling synchronization wait, which is not the fork-to-join sojourn a
+   * caller means by {@code response-time} on a fork-join node, and can even fall below a single
+   * branch's response time (issue #6). JMT tracks the sojourn under
+   * {@code SimConstants.FORK_JOIN_RESPONSE_TIME}, whose job list lives in the *fork* station's
+   * input section, so these measures stay anchored on the domain node name.
+   *
+   * <p>Every other station type still resolves to the join station, so {@code residence-time},
+   * {@code queue-time}, {@code queue-length}, {@code utilization}, {@code throughput} and
+   * {@code drop-rate} on a fork-join node remain join-station numbers — see the follow-up noted in
+   * issue #6 before treating any of them as fork-join-region figures.
+   */
+  private static final Map<String, String> FORK_JOIN_STATION =
+      Map.of("response-time", "Fork Join Response Time");
+
+  /**
+   * JMT measure types that {@link JsimgWriter} must leave anchored on the fork station instead of
+   * remapping onto the internal join station.
+   */
+  static final Set<String> FORK_JOIN_TYPES = Set.copyOf(FORK_JOIN_STATION.values());
+
   public static final Set<String> SUPPORTED;
   static {
     var all = new java.util.HashSet<String>();
     all.addAll(STATION.keySet());
     all.addAll(SYSTEM.keySet());
+    // A fork-join-only domain type (one with no plain-station equivalent in STATION) would
+    // otherwise be rejected by map() as unsupported. No-op while every FORK_JOIN_STATION key is
+    // also a STATION key; here so the next fork-join measure type does not trip over it.
+    all.addAll(FORK_JOIN_STATION.keySet());
     SUPPORTED = Set.copyOf(all);
   }
 
