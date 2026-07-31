@@ -43,7 +43,7 @@ class SolutionsParserTest {
     assertEquals(0.4901, u.lower());
     assertEquals(true, u.success());
     assertEquals(45000, u.samplesAnalyzed());
-    assertEquals(0.05, u.alpha());                // 1 - 0.95 (confidence -> significance)
+    assertEquals(0.05, u.alpha());                // significance level, passed through verbatim
 
     MeasureResult rt = p.measures().get(1);
     assertEquals("fj", rt.station());             // fj__join -> fj (join suffix stripped)
@@ -75,16 +75,23 @@ class SolutionsParserTest {
     assertFalse(p.completed());                   // second measure (fj__join) has successful="false"
   }
 
+  /**
+   * Issue #12: limits are reported verbatim; the parser must NOT reorder them.
+   *
+   * <p>This fixture records the inverted output the service used to produce. Those limits were never
+   * a JMT quirk (as the Task 11 investigation concluded) — {@code getLowerLimit()} is
+   * {@code mean - confInt}, so they invert exactly when {@code confInt} is negative, which is what
+   * writing {@code 1 - alpha} caused. The old silent swap turned that signal into a plausible-looking
+   * interval and hid the defect for months. With alpha written correctly the limits order naturally,
+   * so any future inversion is a real regression and must stay visible rather than be normalized away.
+   */
   @Test
-  void invertedLowerUpperAreNormalizedSoLowerNeverExceedsUpper() throws Exception {
-    // Mimics real terminal-simulation JMT output where lowerLimit/upperLimit are swapped
-    // relative to their names (see Task 11 investigation).
+  void invertedLimitsArePassedThroughNotSilentlyReordered() throws Exception {
     SolutionsParser.Parsed p = new SolutionsParser().parse(resource("/results/inverted-bounds.solutions.xml"));
     assertEquals(1, p.measures().size());
 
     MeasureResult u = p.measures().get(0);
-    assertTrue(u.lower() <= u.upper(), "lower must not exceed upper after normalization");
-    assertEquals(0.4297696235625058, u.lower()); // the smaller raw value (raw upperLimit attribute)
-    assertEquals(0.5250552074712409, u.upper()); // the larger raw value (raw lowerLimit attribute)
+    assertEquals(0.5250552074712409, u.lower()); // raw lowerLimit attribute, not reordered
+    assertEquals(0.4297696235625058, u.upper()); // raw upperLimit attribute, not reordered
   }
 }

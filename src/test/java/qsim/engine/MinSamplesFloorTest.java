@@ -56,14 +56,21 @@ class MinSamplesFloorTest {
         Map.of("web", List.of(new RoutingEdge("src", "q", null), new RoutingEdge("q", "snk", null))));
   }
 
-  @Test
-  void engineHonoursTheMinSamplesFloor() throws Exception {
+  /**
+   * A loose precision the CI rule satisfies well before the floor, so the floor is demonstrably what
+   * extends the run. A tight precision would make this vacuous: once issue #12 was fixed the
+   * precision target binds on its own and drives the run past any modest floor regardless of whether
+   * the attribute reached the engine at all.
+   */
+  private static final double LOOSE_PRECISION = 0.10;
+
+  private Stopping stopping(Integer floor) {
+    return new Stopping(0.05, LOOSE_PRECISION, floor, 20_000_000, null, null, 300, false);
+  }
+
+  private int analyzedSamples(Stopping stopping) throws Exception {
     JsimgWriter writer = new JsimgWriter();
     List<MeasureSpec> measures = new MeasureMapper().map(mm1(), List.of("response-time"));
-    // A generous maxSamples and a tight precision so the CI stopping rule — not the ceiling — is
-    // what the floor has to override.
-    Stopping stopping = new Stopping(0.05, 0.005, FLOOR, 100_000_000, null, null, 300, false);
-
     String xml = writer.toXmlString(mm1(), stopping, 42L, measures);
     JmtRunner runner = new JmtRunner();
     RunResult result = runner.run(xml, 42L, 300, true);
@@ -71,11 +78,24 @@ class MinSamplesFloorTest {
       String out = Files.readString(Path.of(result.outputFile().toURI()));
       Matcher m = Pattern.compile("analyzedSamples=\"(\\d+)\"").matcher(out);
       assertTrue(m.find(), "engine output must report analyzedSamples: " + out);
-      int analyzed = Integer.parseInt(m.group(1));
-      assertTrue(analyzed >= FLOOR,
-          "minSamples floor of " + FLOOR + " must reach the engine, but it analyzed only " + analyzed);
+      return Integer.parseInt(m.group(1));
     } finally {
       runner.cleanup(result);
     }
+  }
+
+  @Test
+  void engineHonoursTheMinSamplesFloor() throws Exception {
+    // Control: with no floor the CI rule stops this model well short of FLOOR. Without this the
+    // assertion below could pass on a run the floor never influenced.
+    int unfloored = analyzedSamples(stopping(null));
+    assertTrue(unfloored < FLOOR,
+        "precondition: the CI rule must stop below " + FLOOR + " for the floor to be what extends "
+            + "the run, but it already analyzed " + unfloored + " — raise FLOOR or loosen precision");
+
+    int floored = analyzedSamples(stopping(FLOOR));
+    assertTrue(floored >= FLOOR,
+        "minSamples floor of " + FLOOR + " must reach the engine, but it analyzed only " + floored
+            + " (unfloored control: " + unfloored + ")");
   }
 }

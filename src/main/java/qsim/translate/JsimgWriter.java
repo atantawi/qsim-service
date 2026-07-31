@@ -560,7 +560,14 @@ public class JsimgWriter {
   // ---- measures ------------------------------------------------------------
 
   private void writeMeasure(Element sim, NetworkModel model, MeasureSpec m, Stopping stopping) {
-    String alpha = stopping == null || stopping.alpha() == null ? "0.01" : Double.toString(1.0 - stopping.alpha());
+    // The attribute carries the SIGNIFICANCE level (a tail probability), not the confidence level
+    // (issue #12). JMT feeds it straight to TStudent.ICDF, whose contract is "significance in,
+    // two-sided critical value out" — it is exact for 0.01/0.05/0.10/0.20. Handed 1 - alpha instead,
+    // it falls onto a path returning the NEGATED one-sided quantile, which makes confInt negative;
+    // NewDynamicDataAnalyzer.HWtest then compares `precision > confInt / extMean` with no absolute
+    // value, so the stopping rule passes unconditionally and every interval comes back inverted and
+    // ~17% too narrow. Do not "restore" the 1 - alpha conversion here.
+    String alpha = stopping == null || stopping.alpha() == null ? "0.01" : stopping.alpha().toString();
     String precision = stopping == null || stopping.precision() == null ? "0.03" : stopping.precision().toString();
     Xml.child(sim, "measure",
         "name", m.name(),

@@ -188,6 +188,23 @@ Every measure carries `mean` + CI + `samples` + `variance` — the per-run detai
 run independent replications and aggregate them correctly (see §9). `success:false` /
 `completed:false` tell the caller when a run did not reach its target so it can extend or discard it.
 
+> **As built** (correction, not a design change — two fields above and in the §5.1 example overstate
+> what ships).
+>
+> - **`precision` in the response echoes the request, not the achieved value.** The `0.048` against a
+>   requested `0.05` in the example implies achieved precision; JMT writes the requested parameter back
+>   into its output and the parser reports it verbatim. A caller cannot read achieved precision off the
+>   response — compute it from `(upper - lower) / 2 / mean` instead.
+> - **`variance` and `stdDev` come back `null`,** not the `0.011` / `0.105` shown.
+>   `XMLSimulationOutput` writes both from a later conditional branch than the main attribute block,
+>   and that branch does not fire for these runs.
+>
+> `success` *does* now mean "this measure's CI target met", as the example claims — but only since
+> [#12](https://github.com/atantawi/qsim-service/issues/12); before that it was set true regardless of
+> achieved precision. Both bullets above are tracked on
+> [#14](https://github.com/atantawi/qsim-service/issues/14) and remain open; when they land, restore
+> the §5.1 example to the achieved-value behaviour it already describes.
+
 Measure `type` values (v1): `response-time`, `residence-time`, `queue-time`, `queue-length`,
 `utilization`, `throughput`, `arrival-rate`, `drop-rate`, plus system-level (`system-response-time`,
 `system-throughput`) and `fork-join-response-time`.
@@ -231,6 +248,19 @@ Measure `type` values (v1): `response-time`, `residence-time`, `queue-time`, `qu
 | `sink`                | `JobSink` |
 | routing edges         | `<connection>` + per-class `EmpiricalStrategy` (probabilities) in the `Router` |
 | measures + stopping   | `<measure alpha precision>` + `<sim>` attrs (`seed`,`maxSamples`,`minSamples`,`maxSimulated`,`maxEvents`,`disableStatisticStop`) + `DispatcherJSIMschema.setSimulationMaxDuration` (wall clock) |
+
+> **Two engine conventions worth not rediscovering** (both cost real debugging time):
+>
+> - **`<measure alpha>` carries the significance level, not the confidence level.** JMT passes it
+>   straight to `TStudent.ICDF`, whose contract is "significance in, two-sided critical value out".
+>   Write `1 - alpha` and it returns the negated *one-sided* quantile, which makes the half-width
+>   negative; `NewDynamicDataAnalyzer.HWtest` compares `precision > confInt / extMean` with no
+>   absolute value, so the stopping rule then passes unconditionally and every interval comes back
+>   inverted and too narrow. See [#12](https://github.com/atantawi/qsim-service/issues/12).
+> - **`minSamples` is read off `<sim>` but is absent from the bundled XSD.** `SimLoader` pulls it via
+>   `getAttribute("minSamples")` exactly like `maxSamples`; the schema is simply stale. Emitting it is
+>   correct and costs one non-fatal validation complaint per run from the engine's own loader. See
+>   [#10](https://github.com/atantawi/qsim-service/issues/10).
 
 Node sections are instantiated reflectively by JMT (`jmt.engine.NodeSections.*`); the translation
 layer emits the section class names and typed parameter blocks the loader expects.

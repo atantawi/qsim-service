@@ -117,6 +117,14 @@ Each response measure carries `mean`, CI (`lower`/`upper`), `alpha`, `precision`
 `success`, `samplesAnalyzed`, `samplesDiscarded`, `variance`, `stdDev`. `completed:false`
 means a cap fired before all CIs converged — the caller decides whether to trust or re-run.
 
+**`precision` binds, so budget for it.** `stopping.precision` is a *relative* CI half-width target,
+and a run continues until it is met or a cap fires. Halving it costs roughly 4x the samples, so a
+tight target is easily the difference between a sub-second run and a multi-minute one: on an M/M/1 at
+`rho=0.8`, `precision: 0.10` converges in ~55k samples while `precision: 0.005` needs ~22M. Set
+`maxSamples` and `maxWallClockSeconds` to bounds you can actually wait for, and read `completed` to
+find out whether a cap fired first. (Before [#12](https://github.com/atantawi/qsim-service/issues/12)
+the target was never enforced, so runs returned almost immediately and this cost was invisible.)
+
 **Fork-join measures:** on a `fork-join` node, `response-time` is the whole fork-to-join sojourn —
 the time from the job splitting to all required branches having rejoined — not any one branch's or
 the join's own residence time. Per-branch numbers are not reported separately; a fork-join's
