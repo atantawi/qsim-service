@@ -53,7 +53,7 @@ public class SimulationService {
     validateDistributions(req.model());
 
     Stopping stopping = effectiveStopping(req.stopping());
-    validateStopping(stopping);
+    validateStopping(req.stopping(), stopping);
     long seed = effectiveSeed(req.seed());
     List<MeasureSpec> measures = measureMapper.map(req.model(), req.measures());
 
@@ -89,11 +89,14 @@ public class SimulationService {
   }
 
   /**
-   * Rejects sample bounds the engine cannot satisfy. Runs on the <em>effective</em> stopping rule,
+   * Rejects sample bounds the engine cannot satisfy. Checks the <em>effective</em> stopping rule,
    * after {@link #effectiveStopping} has filled the gaps, because the contradiction is usually
    * between a caller's floor and a <em>defaulted</em> ceiling — a request naming only
    * {@code minSamples: 5_000_000} inherits {@code maxSamples: 1_000_000} and is unsatisfiable
-   * without ever mentioning a ceiling.
+   * without ever mentioning a ceiling. {@code requested} is taken alongside it purely to tell
+   * whether the ceiling was the caller's or ours: provenance cannot be recovered from the effective
+   * value, since a caller may send a ceiling that happens to equal the default, and telling them it
+   * came from an env var they never set sends them looking in the wrong place.
    *
    * <p>Worth rejecting rather than clamping. Inside JMT the ceiling wins: {@code addSample}
    * terminates unconditionally at {@code nSamples >= maxData}, while the floor only gates the
@@ -102,18 +105,19 @@ public class SimulationService {
    * {@code completed: false} with nothing to say why — the same silent-shortfall shape as issue #10,
    * which is what emitting {@code minSamples} at all was meant to end.
    */
-  void validateStopping(Stopping s) {
+  void validateStopping(Stopping requested, Stopping effective) {
     List<String> errors = new ArrayList<>();
-    Integer min = s.minSamples();
-    Integer max = s.maxSamples();
+    Integer min = effective.minSamples();
+    Integer max = effective.maxSamples();
     if (min != null && min < 0) {
       errors.add("stopping.minSamples must be >= 0 (0 means no floor), but was " + min);
     }
     if (min != null && max != null && min > max) {
+      boolean ceilingIsOurs = requested == null || requested.maxSamples() == null;
       errors.add("stopping.minSamples (" + min + ") must not exceed stopping.maxSamples (" + max
           + "); the ceiling wins inside the engine, so the run would stop short of the floor. "
           + "Raise maxSamples or lower minSamples"
-          + (max.equals(config.defaultMaxSamples())
+          + (ceilingIsOurs
               ? " (maxSamples is the QSIM_DEFAULT_MAX_SAMPLES default, not a value you sent)" : ""));
     }
     if (!errors.isEmpty()) {

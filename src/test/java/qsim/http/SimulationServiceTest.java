@@ -92,9 +92,10 @@ class SimulationServiceTest {
     return new Stopping(0.05, 0.03, minSamples, maxSamples, null, null, 60, false);
   }
 
+  /** Both bounds sent explicitly, so requested and effective coincide. */
   private ValidationException rejected(Stopping s) {
     SimulationService service = new SimulationService(Config.defaults());
-    return assertThrows(ValidationException.class, () -> service.validateStopping(s));
+    return assertThrows(ValidationException.class, () -> service.validateStopping(s, s));
   }
 
   @Test
@@ -114,14 +115,16 @@ class SimulationServiceTest {
   @Test
   void acceptsAFloorEqualToTheCeiling() {
     SimulationService service = new SimulationService(Config.defaults());
-    assertDoesNotThrow(() -> service.validateStopping(bounds(100_000, 100_000)));
+    Stopping s = bounds(100_000, 100_000);
+    assertDoesNotThrow(() -> service.validateStopping(s, s));
   }
 
   /** Zero is the documented way to ask for no floor at all. */
   @Test
   void acceptsAZeroFloor() {
     SimulationService service = new SimulationService(Config.defaults());
-    assertDoesNotThrow(() -> service.validateStopping(bounds(0, 100_000)));
+    Stopping s = bounds(0, 100_000);
+    assertDoesNotThrow(() -> service.validateStopping(s, s));
   }
 
   /**
@@ -134,10 +137,29 @@ class SimulationServiceTest {
     SimulationService service = new SimulationService(Config.defaults());
     Stopping requested = bounds(Config.defaults().defaultMaxSamples() + 1, null);
     ValidationException e = assertThrows(ValidationException.class,
-        () -> service.validateStopping(service.effectiveStopping(requested)));
+        () -> service.validateStopping(requested, service.effectiveStopping(requested)));
     assertTrue(e.getMessage().contains("QSIM_DEFAULT_MAX_SAMPLES"),
         "the caller never sent a ceiling, so the message must attribute it to the default: "
             + e.getMessage());
+  }
+
+  /**
+   * The mirror of the case above, and the one that keeps the attribution honest: a caller who sends
+   * a ceiling that happens to equal the default must not be told the ceiling was not theirs.
+   * 1,000,000 is the value the design spec's own example uses, so this is the likely collision
+   * rather than an exotic one — and pointing such a caller at an env var they never set sends them
+   * looking in the wrong place.
+   */
+  @Test
+  void doesNotBlameTheDefaultForACeilingTheCallerSent() {
+    SimulationService service = new SimulationService(Config.defaults());
+    int explicitCeiling = Config.defaults().defaultMaxSamples();
+    Stopping requested = bounds(explicitCeiling + 1, explicitCeiling);
+    ValidationException e = assertThrows(ValidationException.class,
+        () -> service.validateStopping(requested, service.effectiveStopping(requested)));
+    assertFalse(e.getMessage().contains("QSIM_DEFAULT_MAX_SAMPLES"),
+        "the caller sent maxSamples=" + explicitCeiling + " explicitly, so the message must not "
+            + "attribute it to the default: " + e.getMessage());
   }
 
   /** The guard must fire before the engine is started, not after a wasted run. */
