@@ -19,10 +19,39 @@ system-scoped Maven dependency.
 
 ## Run
 
+Two options — a container, or a plain Java process. Both start the same server and
+read the same environment variables.
+
+### As a Docker container
+
 ```bash
 docker build -t qsim-service:0.1.0 .
 docker run --rm -p 8080:8080 qsim-service:0.1.0
 ```
+
+### As a local Java process
+
+Requires a JDK 17 or later. `mvn package` (above) writes `target/qsim-service.jar` and
+copies the runtime dependencies to `target/dependency/`. The bundled JMT jar is
+*system*-scoped, so it is not copied there and has to be named on the classpath
+explicitly:
+
+```bash
+mvn package
+java -cp "target/qsim-service.jar:target/dependency/*:lib/JMT-singlejar-1.4.0.jar" \
+     qsim.http.App
+```
+
+The jar has no `Main-Class`, so run it with `-cp` and the main class rather than
+`java -jar`. Override the port and other settings with the env vars below:
+
+```bash
+QSIM_PORT=9090 java -cp "target/qsim-service.jar:target/dependency/*:lib/JMT-singlejar-1.4.0.jar" \
+     qsim.http.App
+```
+
+`App.main` sets `java.awt.headless=true` itself, so no extra flag is needed. Stop the
+server with Ctrl-C.
 
 Configuration via env vars: `QSIM_PORT` (default 8080), `QSIM_DEFAULT_ALPHA`,
 `QSIM_DEFAULT_PRECISION`, `QSIM_DEFAULT_MIN_SAMPLES`, `QSIM_DEFAULT_MAX_SAMPLES`,
