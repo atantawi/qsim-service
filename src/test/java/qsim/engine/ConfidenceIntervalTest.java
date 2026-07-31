@@ -51,8 +51,10 @@ class ConfidenceIntervalTest {
                 new QueueNode("q", "queue", 1, "fcfs", null, Map.of("web", new ServiceSpec(exp(1.0)))),
                 new SinkNode("snk", "sink")),
         Map.of("web", List.of(new RoutingEdge("src", "q", null), new RoutingEdge("q", "snk", null))));
-    // No sample floor and a generous ceiling: the CI rule alone must decide when to stop, which is
-    // exactly what the negative half-width used to short-circuit.
+    // A generous ceiling, and the floor left to its default: SimulationService fills minSamples in
+    // from QSIM_DEFAULT_MIN_SAMPLES (10,000), which is orders of magnitude below what this precision
+    // target needs, so the CI rule is what decides when to stop — exactly what the negative
+    // half-width used to short-circuit.
     Stopping s = new Stopping(0.05, precision, null, 20_000_000, null, null, 300, false);
     return new SimulationRequest(m, 42L, s, List.of("response-time"));
   }

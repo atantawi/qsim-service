@@ -58,12 +58,23 @@ repair-CoV effect on the two metrics separate out cleanly.
 
 ## Why seed-averaging
 
-Tightening the per-run confidence-interval `precision` in the request does **not**
-reduce the estimate's Monte-Carlo error: a fixed seed reproduces the same simulated
-trajectory every time, no matter how tight a CI you ask the service to compute around
-it. Near the knee (`N ≈ 1000`), the sweep curves are only clean when averaged over
-independent seeds. So each plotted point is the mean over `K = 10` independent seeds —
-the independent-replications workflow the service is designed to support.
+Tightening the per-run confidence-interval `precision` is not a substitute for averaging
+over seeds. It does buy a better single-run estimate — a tighter target makes the engine
+extend that seed's trajectory until it is met, and a longer run does reduce that run's
+Monte-Carlo error — but it buys it the expensive way: cost grows roughly as `1/precision²`,
+so each halving is ~4x the samples, and what you get is still one realization of one
+trajectory, with a within-run batch-means interval around it. Near the knee (`N ≈ 1000`)
+the sweep curves are only clean when averaged over independent seeds, which also yields an
+across-replication error estimate that doesn't rely on the batching being well-behaved. So
+each plotted point is the mean over `K = 10` independent seeds — the independent-replications
+workflow the service is designed to support.
+
+> **As built** (correction). This section previously claimed that tightening `precision` does
+> **not** reduce the estimate's Monte-Carlo error, on the grounds that a fixed seed reproduces the
+> same trajectory regardless. That was accidentally true when written: the CI stopping rule was
+> disabled by [#12](https://github.com/atantawi/qsim-service/issues/12), so `precision` was ignored
+> entirely and tightening it genuinely changed nothing. With that fixed, `precision` binds and does
+> extend the run. The choice of seed-averaging here is unaffected — the reasoning above is.
 
 ## Why simulate this at all
 
