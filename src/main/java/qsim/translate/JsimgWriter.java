@@ -17,6 +17,7 @@ package qsim.translate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.xml.XMLConstants;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.validation.Schema;
@@ -649,7 +650,7 @@ public class JsimgWriter {
    * not allowed} line to stderr. The model loads and the floor is honoured regardless — see
    * {@code MinSamplesFloorTest}.
    */
-  private static final List<String> ENGINE_ONLY_SIM_ATTRS = List.of("minSamples");
+  private static final Set<String> ENGINE_ONLY_SIM_ATTRS = Set.of("minSamples");
 
   public void validate(Document doc) {
     try {
@@ -663,14 +664,15 @@ public class JsimgWriter {
       Schema schema = sf.newSchema(new javax.xml.transform.stream.StreamSource(xsdUrl.toExternalForm()));
       Validator v = schema.newValidator();
       // Validate a copy with the engine-only attributes removed: everything else still faces the
-      // full schema, and the caller's document keeps the attributes the engine needs.
-      Document toCheck = doc;
-      Element root = doc.getDocumentElement();
-      if (root != null && ENGINE_ONLY_SIM_ATTRS.stream().anyMatch(root::hasAttribute)) {
-        toCheck = (Document) doc.cloneNode(true);
-        Element clonedRoot = toCheck.getDocumentElement();
+      // full schema, and the caller's document keeps the attributes the engine needs. The service
+      // always fills in minSamples, so the copy is taken on every request — unconditionally, since
+      // a "is any present?" pre-scan would just be a check that is always true.
+      Document toCheck = (Document) doc.cloneNode(true);
+      Element checkedRoot = toCheck.getDocumentElement();
+      if (checkedRoot != null) {
         for (String attr : ENGINE_ONLY_SIM_ATTRS) {
-          clonedRoot.removeAttribute(attr);
+          // removeAttributeNS(null, ...) mirrors the setAttributeNS(null, ...) in Xml.child.
+          checkedRoot.removeAttributeNS(null, attr);
         }
       }
       v.validate(new DOMSource(toCheck));

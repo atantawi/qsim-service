@@ -58,19 +58,33 @@ Configuration via env vars: `QSIM_PORT` (default 8080), `QSIM_DEFAULT_ALPHA`,
 `QSIM_DEFAULT_PRECISION`, `QSIM_DEFAULT_MIN_SAMPLES`, `QSIM_DEFAULT_MAX_SAMPLES`,
 `QSIM_DEFAULT_MAX_WALLCLOCK_SECONDS`, `QSIM_TEMP_DIR`.
 
-### Expected engine log line
+### The sample floor, and the engine log line it causes
 
-Every simulation prints one non-fatal line to stderr:
+`stopping.minSamples` is a floor on the samples a measure must collect before the
+confidence-interval rule is allowed to stop the run. The service always fills it in — from
+`QSIM_DEFAULT_MIN_SAMPLES` (10,000) when a request omits it — so **every** run carries a
+floor: a model that would have converged in fewer samples now keeps going to the floor,
+returning a tighter interval for more wall-clock time. Send `"minSamples": 0`, or set
+`QSIM_DEFAULT_MIN_SAMPLES=0`, for no floor.
+
+A floor above `maxSamples` is rejected with 400. Inside the engine the ceiling wins, so
+such a run would stop short of the floor and report `completed: false` with nothing to
+explain why.
+
+Because the attribute is always written, every simulation prints one non-fatal line to
+stderr — including runs with the floor set to 0:
 
 ```
-[Error] :2:202: cvc-complex-type.3.2.2: Attribute 'minSamples' is not allowed to appear in element 'sim'.
+[Error] :2:<column>: cvc-complex-type.3.2.2: Attribute 'minSamples' is not allowed to appear in element 'sim'.
 ```
 
-This is benign and can be ignored. `stopping.minSamples` is a real control that JMT's
-model loader reads and honours, but the XSD bundled in the JMT jar never declared the
-attribute, so the engine's own validation pass complains about it while loading the model
-anyway. Suppressing it would mean forking all six bundled schemas. See the
-`ENGINE_ONLY_SIM_ATTRS` note in `JsimgWriter` and issue #10.
+The column tracks the length of the attributes that precede it, so it differs per model;
+match on `Attribute 'minSamples' is not allowed` if you need to filter the line out. It is
+benign. `minSamples` is a real control that JMT's model loader reads and honours, but the
+XSD bundled in the JMT jar never declared the attribute, so the engine's own validation
+pass complains about it while loading the model anyway. Suppressing it would mean forking
+all six bundled schemas. See the `ENGINE_ONLY_SIM_ATTRS` note in `JsimgWriter` and issue
+#10.
 
 ## API
 
