@@ -19,8 +19,9 @@ system-scoped Maven dependency.
 
 ## Run
 
-Two options — a container, or a plain Java process. Both start the same server and
-read the same environment variables.
+Two options — a container, or a plain Java process. Both start the same server and read
+the same environment variables, except that overriding `QSIM_PORT` under Docker also
+needs a matching `-p` mapping (e.g. `-e QSIM_PORT=9090 -p 9090:9090`).
 
 ### As a Docker container
 
