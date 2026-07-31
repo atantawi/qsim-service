@@ -17,6 +17,7 @@ package qsim.translate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.xml.XMLConstants;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.validation.Schema;
@@ -45,6 +46,11 @@ public class JsimgWriter {
         "name", model.name(),
         "seed", Long.toString(seed),
         "maxSamples", stopping == null || stopping.maxSamples() == null ? "1000000" : stopping.maxSamples().toString(),
+        // Sample floor (issue #10). JMT's SimLoader reads minSamples off <sim> exactly like
+        // maxSamples, but the bundled SIMmodeldefinition.xsd never declared it — see the
+        // ENGINE_ONLY_SIM_ATTRS note on validate(). Xml.child drops null values, so an absent
+        // floor omits the attribute entirely and leaves JMT's own default of 0 (no floor).
+        "minSamples", stopping == null || stopping.minSamples() == null ? null : stopping.minSamples().toString(),
         "maxEvents", stopping == null || stopping.maxEvents() == null ? "-1" : stopping.maxEvents().toString(),
         "maxSimulated", stopping == null || stopping.maxSimulatedTime() == null ? "-1.0" : stopping.maxSimulatedTime().toString(),
         "disableStatisticStop", stopping != null && Boolean.TRUE.equals(stopping.disableStatisticStop()) ? "true" : "false",
@@ -628,6 +634,24 @@ public class JsimgWriter {
 
   // ---- XSD validation ------------------------------------------------------
 
+  /**
+   * Attributes the engine's {@code SimLoader} reads off {@code <sim>} but the bundled
+   * {@code SIMmodeldefinition.xsd} does not declare, so XSD validation would reject them.
+   *
+   * <p>{@code minSamples} is the case in point (issue #10): {@code SimLoader} pulls it straight off
+   * the element via {@code getAttribute("minSamples")} and pushes it into
+   * {@code SimParameters.setMinSamples}, right alongside {@code maxSamples} — the schema is simply
+   * stale relative to the loader. Patching the schema instead is not viable: it would mean forking
+   * all six bundled XSDs (SIMmodeldefinition includes Archive, which includes three more) and
+   * shadowing them off the classpath ahead of the jar.
+   *
+   * <p>Consequence worth knowing: the engine validates the model against that same stale schema
+   * when it loads, so every run prints one non-fatal {@code [Error] ... Attribute 'minSamples' is
+   * not allowed} line to stderr. The model loads and the floor is honoured regardless — see
+   * {@code MinSamplesFloorTest}.
+   */
+  private static final Set<String> ENGINE_ONLY_SIM_ATTRS = Set.of("minSamples");
+
   public void validate(Document doc) {
     try {
       SchemaFactory sf = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
@@ -639,7 +663,19 @@ public class JsimgWriter {
       }
       Schema schema = sf.newSchema(new javax.xml.transform.stream.StreamSource(xsdUrl.toExternalForm()));
       Validator v = schema.newValidator();
-      v.validate(new DOMSource(doc));
+      // Validate a copy with the engine-only attributes removed: everything else still faces the
+      // full schema, and the caller's document keeps the attributes the engine needs. The service
+      // always fills in minSamples, so the copy is taken on every request — unconditionally, since
+      // a "is any present?" pre-scan would just be a check that is always true.
+      Document toCheck = (Document) doc.cloneNode(true);
+      Element checkedRoot = toCheck.getDocumentElement();
+      if (checkedRoot != null) {
+        for (String attr : ENGINE_ONLY_SIM_ATTRS) {
+          // removeAttributeNS(null, ...) mirrors the setAttributeNS(null, ...) in Xml.child.
+          checkedRoot.removeAttributeNS(null, attr);
+        }
+      }
+      v.validate(new DOMSource(toCheck));
     } catch (org.xml.sax.SAXException e) {
       throw new ValidationException(ValidationException.Kind.UNPROCESSABLE,
           List.of("generated JSIMG failed XSD validation: " + e.getMessage()));

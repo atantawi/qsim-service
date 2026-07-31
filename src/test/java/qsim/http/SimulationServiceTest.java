@@ -14,13 +14,18 @@
  */
 package qsim.http;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import qsim.contract.ValidationException;
+import qsim.engine.JmtRunner;
+import qsim.engine.RunResult;
 import qsim.model.*;
 
 class SimulationServiceTest {
@@ -72,5 +77,124 @@ class SimulationServiceTest {
         List.of("utilization"));
     SimulationResponse resp = service.simulate(noSeed);
     assertTrue(resp.seed() != null, "service must generate and echo a seed when none is supplied");
+  }
+
+  // ---- sample-bound guard --------------------------------------------------
+  //
+  // Now that minSamples actually reaches the engine (issue #10), a floor above the ceiling is a
+  // request the engine cannot satisfy: addSample terminates at maxData while the floor only gates
+  // the CI stop rule, so the run would end short and report completed:false with no explanation.
+  // Rejecting is the point — clamping the floor down to the ceiling would silently deliver less
+  // than was asked for, which is the shape of #10 itself.
+
+  /** A stopping rule that varies only the two sample bounds. */
+  private Stopping bounds(Integer minSamples, Integer maxSamples) {
+    return new Stopping(0.05, 0.03, minSamples, maxSamples, null, null, 60, false);
+  }
+
+  /** Both bounds sent explicitly, so requested and effective coincide. */
+  private ValidationException rejected(Stopping s) {
+    SimulationService service = new SimulationService(Config.defaults());
+    return assertThrows(ValidationException.class, () -> service.validateStopping(s, s));
+  }
+
+  @Test
+  void rejectsAFloorAboveTheCeiling() {
+    ValidationException e = rejected(bounds(500_000, 100_000));
+    assertEquals(ValidationException.Kind.BAD_REQUEST, e.kind(), "a bad bound is a 400, not a 422");
+    assertTrue(e.getMessage().contains("500000") && e.getMessage().contains("100000"),
+        "the message must name both bounds so the caller can see the contradiction: " + e.getMessage());
+  }
+
+  @Test
+  void rejectsANegativeFloor() {
+    assertEquals(ValidationException.Kind.BAD_REQUEST, rejected(bounds(-1, 100_000)).kind());
+  }
+
+  /**
+   * A ceiling below one sample is not the silent-shortfall class #10 was about — the engine ends at
+   * its first sample and honestly reports {@code completed: false} — but the run is guaranteed
+   * useless, so there is no reason to spend an engine start on it.
+   */
+  @Test
+  void rejectsACeilingBelowOneSample() {
+    assertEquals(ValidationException.Kind.BAD_REQUEST, rejected(bounds(0, 0)).kind());
+  }
+
+  /**
+   * With a nonsense ceiling, the floor-versus-ceiling comparison would add "raise maxSamples or
+   * lower minSamples" — advice that cannot be followed against a ceiling of 0. One clear error.
+   */
+  @Test
+  void reportsOnlyTheCeilingWhenTheCeilingIsItselfInvalid() {
+    ValidationException e = rejected(bounds(500_000, 0));
+    assertEquals(1, e.details().size(), "expected a single error, got: " + e.details());
+    assertTrue(e.getMessage().contains("maxSamples must be >= 1"), e.getMessage());
+  }
+
+  /** A floor equal to the ceiling is satisfiable — the engine can reach it exactly. */
+  @Test
+  void acceptsAFloorEqualToTheCeiling() {
+    SimulationService service = new SimulationService(Config.defaults());
+    Stopping s = bounds(100_000, 100_000);
+    assertDoesNotThrow(() -> service.validateStopping(s, s));
+  }
+
+  /** Zero is the documented way to ask for no floor at all. */
+  @Test
+  void acceptsAZeroFloor() {
+    SimulationService service = new SimulationService(Config.defaults());
+    Stopping s = bounds(0, 100_000);
+    assertDoesNotThrow(() -> service.validateStopping(s, s));
+  }
+
+  /**
+   * The common shape: a caller raises the floor and never mentions a ceiling, so the contradiction
+   * is against the *default* maxSamples. The check therefore has to run on the effective stopping
+   * rule rather than the raw request, and the message has to say where the ceiling came from.
+   */
+  @Test
+  void rejectsAFloorThatOnlyContradictsTheDefaultedCeiling() {
+    SimulationService service = new SimulationService(Config.defaults());
+    Stopping requested = bounds(Config.defaults().defaultMaxSamples() + 1, null);
+    ValidationException e = assertThrows(ValidationException.class,
+        () -> service.validateStopping(requested, service.effectiveStopping(requested)));
+    assertTrue(e.getMessage().contains("QSIM_DEFAULT_MAX_SAMPLES"),
+        "the caller never sent a ceiling, so the message must attribute it to the default: "
+            + e.getMessage());
+  }
+
+  /**
+   * The mirror of the case above, and the one that keeps the attribution honest: a caller who sends
+   * a ceiling that happens to equal the default must not be told the ceiling was not theirs.
+   * 1,000,000 is the value the design spec's own example uses, so this is the likely collision
+   * rather than an exotic one — and pointing such a caller at an env var they never set sends them
+   * looking in the wrong place.
+   */
+  @Test
+  void doesNotBlameTheDefaultForACeilingTheCallerSent() {
+    SimulationService service = new SimulationService(Config.defaults());
+    int explicitCeiling = Config.defaults().defaultMaxSamples();
+    Stopping requested = bounds(explicitCeiling + 1, explicitCeiling);
+    ValidationException e = assertThrows(ValidationException.class,
+        () -> service.validateStopping(requested, service.effectiveStopping(requested)));
+    assertFalse(e.getMessage().contains("QSIM_DEFAULT_MAX_SAMPLES"),
+        "the caller sent maxSamples=" + explicitCeiling + " explicitly, so the message must not "
+            + "attribute it to the default: " + e.getMessage());
+  }
+
+  /** The guard must fire before the engine is started, not after a wasted run. */
+  @Test
+  void rejectsBeforeInvokingTheEngine() {
+    SimulationService service = new SimulationService(Config.defaults(), new JmtRunner() {
+      @Override
+      public RunResult run(String xml, long seed, Integer maxWallClockSeconds, boolean terminal) {
+        throw new AssertionError("bad sample bounds must be rejected before the engine is invoked");
+      }
+    });
+    SimulationRequest req = new SimulationRequest(mm1().model(), 42L, bounds(500_000, 100_000),
+        List.of("utilization"));
+    assertEquals(ValidationException.Kind.BAD_REQUEST,
+        assertThrows(ValidationException.class, () -> service.simulate(req)).kind());
   }
 }
