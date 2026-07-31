@@ -5,6 +5,6 @@
   <measure measureType="Fork Join Response Time" station="fj" class="web"
            meanValue="0.2884507654809945" lowerLimit="0.2801" upperLimit="0.2968"
            successful="true" analyzedSamples="5760" discardedSamples="0"
-           precision="0.029" alfa="0.95" maxSamples="1000000" nodeType="station"
+           precision="0.029" alfa="0.05" maxSamples="1000000" nodeType="station"
            variance="0.083" standardDeviation="0.288"/>
 </solutions>

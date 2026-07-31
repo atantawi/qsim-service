@@ -63,16 +63,16 @@ public class SolutionsParser {
         Element m = (Element) measures.item(i);
         boolean success = Boolean.parseBoolean(m.getAttribute("successful"));
         completed &= success;
-        // JMT's terminal-simulation output has been observed to report lowerLimit/upperLimit
-        // swapped relative to their names (see Task 11 investigation); normalize here so a
-        // confidence interval we hand to clients always satisfies lower <= upper.
+        // Reported verbatim, deliberately not reordered (issue #12). The Task 11 investigation read
+        // inverted lowerLimit/upperLimit as a JMT output quirk and normalized it by swapping, but it
+        // was never a quirk: Measure.getLowerLimit() is `mean - confInt`, so the endpoints invert
+        // exactly when confInt is negative — which is what writing `1 - alpha` into <measure alpha>
+        // caused. The swap turned that signal into a plausible-looking interval and hid the defect.
+        // With alpha written correctly confInt is positive and the endpoints order naturally (the
+        // degenerate paths, isZero and confInt == 0, are ordered too), so an inversion now means a
+        // real regression and must stay visible.
         Double lower = parseD(m.getAttribute("lowerLimit"));
         Double upper = parseD(m.getAttribute("upperLimit"));
-        if (lower != null && upper != null && lower > upper) {
-          Double swap = lower;
-          lower = upper;
-          upper = swap;
-        }
         results.add(new MeasureResult(
             domainStation(m.getAttribute("station")),
             m.getAttribute("class"),
@@ -80,7 +80,7 @@ public class SolutionsParser {
             parseD(m.getAttribute("meanValue")),
             lower,
             upper,
-            significance(m.getAttribute("alfa")),
+            parseD(m.getAttribute("alfa")),
             parseD(m.getAttribute("precision")),
             success,
             parseI(m.getAttribute("analyzedSamples")),
@@ -109,13 +109,6 @@ public class SolutionsParser {
   }
 
   private static final Pattern BRANCH_SUFFIX_PATTERN = Pattern.compile("__b\\d+$");
-
-  private static Double significance(String alfa) {
-    Double conf = parseD(alfa);
-    if (conf == null) return null;
-    // round 1 - confidence to 6 dp to shed float noise (0.99 -> 0.01, 0.95 -> 0.05)
-    return Math.round((1.0 - conf) * 1_000_000.0) / 1_000_000.0;
-  }
 
   private static Double parseD(String s) {
     if (s == null || s.isBlank()) return null;

@@ -6,6 +6,6 @@
   <measure measureType="Utilization" station="q" class="web"
            meanValue="0.47741241551687336" lowerLimit="0.5250552074712409" upperLimit="0.4297696235625058"
            successful="true" analyzedSamples="1280" discardedSamples="285"
-           precision="0.03" alfa="0.95" maxSamples="500000" nodeType="station"
+           precision="0.03" alfa="0.05" maxSamples="500000" nodeType="station"
            variance="0.0011" standardDeviation="0.0331"/>
 </solutions>
