@@ -111,6 +111,27 @@ class SimulationServiceTest {
     assertEquals(ValidationException.Kind.BAD_REQUEST, rejected(bounds(-1, 100_000)).kind());
   }
 
+  /**
+   * A ceiling below one sample is not the silent-shortfall class #10 was about — the engine ends at
+   * its first sample and honestly reports {@code completed: false} — but the run is guaranteed
+   * useless, so there is no reason to spend an engine start on it.
+   */
+  @Test
+  void rejectsACeilingBelowOneSample() {
+    assertEquals(ValidationException.Kind.BAD_REQUEST, rejected(bounds(0, 0)).kind());
+  }
+
+  /**
+   * With a nonsense ceiling, the floor-versus-ceiling comparison would add "raise maxSamples or
+   * lower minSamples" — advice that cannot be followed against a ceiling of 0. One clear error.
+   */
+  @Test
+  void reportsOnlyTheCeilingWhenTheCeilingIsItselfInvalid() {
+    ValidationException e = rejected(bounds(500_000, 0));
+    assertEquals(1, e.details().size(), "expected a single error, got: " + e.details());
+    assertTrue(e.getMessage().contains("maxSamples must be >= 1"), e.getMessage());
+  }
+
   /** A floor equal to the ceiling is satisfiable — the engine can reach it exactly. */
   @Test
   void acceptsAFloorEqualToTheCeiling() {

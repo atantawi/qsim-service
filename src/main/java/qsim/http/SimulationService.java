@@ -112,7 +112,13 @@ public class SimulationService {
     if (min != null && min < 0) {
       errors.add("stopping.minSamples must be >= 0 (0 means no floor), but was " + min);
     }
-    if (min != null && max != null && min > max) {
+    if (max != null && max < 1) {
+      errors.add("stopping.maxSamples must be >= 1, but was " + max
+          + "; a ceiling below one sample ends the run before any measure collects data");
+    }
+    // Skipped when the ceiling is itself invalid: "raise maxSamples or lower minSamples" is useless
+    // advice against a ceiling of 0, and one clear error beats two overlapping ones.
+    if (min != null && max != null && max >= 1 && min > max) {
       boolean ceilingIsOurs = requested == null || requested.maxSamples() == null;
       errors.add("stopping.minSamples (" + min + ") must not exceed stopping.maxSamples (" + max
           + "); the ceiling wins inside the engine, so the run would stop short of the floor. "

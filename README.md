@@ -69,7 +69,8 @@ returning a tighter interval for more wall-clock time. Send `"minSamples": 0`, o
 
 A floor above `maxSamples` is rejected with 400. Inside the engine the ceiling wins, so
 such a run would stop short of the floor and report `completed: false` with nothing to
-explain why.
+explain why. A `maxSamples` below 1 is rejected too — the engine would end at its first
+sample, so the run cannot produce anything.
 
 Because the attribute is always written, every simulation prints one non-fatal line to
 stderr — including runs with the floor set to 0:
