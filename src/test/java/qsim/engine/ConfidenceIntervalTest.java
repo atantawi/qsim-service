@@ -31,9 +31,14 @@ import qsim.model.*;
  * no absolute value — passed unconditionally. Every interval was too narrow, its endpoints were
  * inverted, and {@code success} was set true at any sample count.
  *
- * <p>Both assertions here are semantic rather than structural, so they hold regardless of how the
+ * <p>The assertions here are semantic rather than structural, so they hold regardless of how the
  * attribute is spelled: a run that reports success must actually have met its precision target, and
  * a confidence interval must contain its own mean.
+ *
+ * <p>Both tests guard against passing vacuously, because the regression they gate would otherwise
+ * arrange exactly that. A negative half-width satisfies {@code achieved <= precision} for free, and
+ * a run that reports no successful measure gives the first test's loop nothing to check — so the
+ * sign is asserted before it is used as a ratio, and each test asserts it examined something.
  */
 class ConfidenceIntervalTest {
 
@@ -63,16 +68,33 @@ class ConfidenceIntervalTest {
   void successMeansThePrecisionTargetWasActuallyMet() {
     double precision = 0.02;
     SimulationResponse r = service.simulate(mm1(precision));
+    int checked = 0;
     for (MeasureResult m : r.measures()) {
       if (!m.success()) continue;
       double halfWidth = (m.upper() - m.lower()) / 2.0;
+      // Signed, and checked before it becomes a ratio. Under issue #12 confInt was negative, so
+      // lower = mean - confInt was the LARGER endpoint and this half-width came out negative —
+      // which satisfies `achieved <= precision` at any sample count. Without this assertion the
+      // one below would pass on precisely the regression this test exists to catch.
+      assertTrue(halfWidth > 0,
+          "measure " + m.type() + " has a non-positive CI half-width " + halfWidth
+              + " (CI=[" + m.lower() + ", " + m.upper() + "]) — an inverted interval means the "
+              + "t-quantile came from the wrong tail, which also disables the stopping rule");
       double achieved = halfWidth / m.mean();
       assertTrue(achieved <= precision,
           "measure " + m.type() + " reports success=true but its achieved relative half-width is "
               + achieved + ", missing the requested precision of " + precision
               + " (mean=" + m.mean() + ", CI=[" + m.lower() + ", " + m.upper() + "], "
               + "samples=" + m.samplesAnalyzed() + ")");
+      checked++;
     }
+    // The loop body is the entire test, so an empty one verifies nothing. This model at precision
+    // 0.02 converges in ~1.4M samples, well inside both the 20M ceiling and the 300s wall clock, so
+    // a measure failing to report success is a real result worth failing on rather than skipping.
+    assertTrue(checked > 0,
+        "precondition: at least one measure must report success=true for this test to check "
+            + "anything, but none of " + r.measures().size() + " did (completed=" + r.completed()
+            + ", wallClock=" + r.wallClockSeconds() + "s)");
   }
 
   @Test
