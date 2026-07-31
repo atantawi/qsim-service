@@ -58,6 +58,20 @@ Configuration via env vars: `QSIM_PORT` (default 8080), `QSIM_DEFAULT_ALPHA`,
 `QSIM_DEFAULT_PRECISION`, `QSIM_DEFAULT_MIN_SAMPLES`, `QSIM_DEFAULT_MAX_SAMPLES`,
 `QSIM_DEFAULT_MAX_WALLCLOCK_SECONDS`, `QSIM_TEMP_DIR`.
 
+### Expected engine log line
+
+Every simulation prints one non-fatal line to stderr:
+
+```
+[Error] :2:202: cvc-complex-type.3.2.2: Attribute 'minSamples' is not allowed to appear in element 'sim'.
+```
+
+This is benign and can be ignored. `stopping.minSamples` is a real control that JMT's
+model loader reads and honours, but the XSD bundled in the JMT jar never declared the
+attribute, so the engine's own validation pass complains about it while loading the model
+anyway. Suppressing it would mean forking all six bundled schemas. See the
+`ENGINE_ONLY_SIM_ATTRS` note in `JsimgWriter` and issue #10.
+
 ## API
 
 ### `GET /health` → `{"status":"ok"}`
