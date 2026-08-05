@@ -122,7 +122,7 @@ and a run continues until it is met or a cap fires. Halving it costs roughly 4x 
 tight target is easily the difference between a sub-second run and a multi-minute one: on an M/M/1 at
 `rho=0.8`, `precision: 0.10` converges in ~55k samples while `precision: 0.005` needs ~22M. Set
 `maxSamples` and `maxWallClockSeconds` to bounds you can actually wait for, and read `completed` to
-find out whether a cap fired first. (Before [#12](https://github.com/atantawi/qsim-service/issues/12)
+find out whether a cap fired first. (Before [#12](https://github.com/modeling-analysis/qsim-service/issues/12)
 the target was never enforced, so runs returned almost immediately and this cost was invisible.)
 
 **Fork-join measures:** on a `fork-join` node, `response-time` is the whole fork-to-join sojourn —
@@ -134,7 +134,7 @@ measures come back under its own node name.
 > `queue-length`, `residence-time`, `queue-time`, `utilization`, `throughput` and `drop-rate` on a
 > fork-join node are measured at its internal join station, so e.g. `queue-length` is the join's
 > synchronization backlog rather than the fork-join's in-flight population. Do not read those as
-> region figures — see [#8](https://github.com/atantawi/qsim-service/issues/8).
+> region figures — see [#8](https://github.com/modeling-analysis/qsim-service/issues/8).
 
 **Distributions:** named (`{"type":"exponential","rate":r}`, `{"type":"deterministic","value":v}`)
 or moment form (`{"mean":m,"scv":c}` → Exponential/Deterministic/Gamma). v1 implements these

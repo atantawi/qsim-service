@@ -200,9 +200,9 @@ run independent replications and aggregate them correctly (see §9). `success:fa
 >   and that branch does not fire for these runs.
 >
 > `success` *does* now mean "this measure's CI target met", as the example claims — but only since
-> [#12](https://github.com/atantawi/qsim-service/issues/12); before that it was set true regardless of
+> [#12](https://github.com/modeling-analysis/qsim-service/issues/12); before that it was set true regardless of
 > achieved precision. Both bullets above are tracked on
-> [#14](https://github.com/atantawi/qsim-service/issues/14) and remain open; when they land, restore
+> [#14](https://github.com/modeling-analysis/qsim-service/issues/14) and remain open; when they land, restore
 > the §5.1 example to the achieved-value behaviour it already describes.
 
 Measure `type` values (v1): `response-time`, `residence-time`, `queue-time`, `queue-length`,
@@ -256,11 +256,11 @@ Measure `type` values (v1): `response-time`, `residence-time`, `queue-time`, `qu
 >   Write `1 - alpha` and it returns the negated *one-sided* quantile, which makes the half-width
 >   negative; `NewDynamicDataAnalyzer.HWtest` compares `precision > confInt / extMean` with no
 >   absolute value, so the stopping rule then passes unconditionally and every interval comes back
->   inverted and too narrow. See [#12](https://github.com/atantawi/qsim-service/issues/12).
+>   inverted and too narrow. See [#12](https://github.com/modeling-analysis/qsim-service/issues/12).
 > - **`minSamples` is read off `<sim>` but is absent from the bundled XSD.** `SimLoader` pulls it via
 >   `getAttribute("minSamples")` exactly like `maxSamples`; the schema is simply stale. Emitting it is
 >   correct and costs one non-fatal validation complaint per run from the engine's own loader. See
->   [#10](https://github.com/atantawi/qsim-service/issues/10).
+>   [#10](https://github.com/modeling-analysis/qsim-service/issues/10).
 
 Node sections are instantiated reflectively by JMT (`jmt.engine.NodeSections.*`); the translation
 layer emits the section class names and typed parameter blocks the loader expects.

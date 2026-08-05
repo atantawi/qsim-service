@@ -72,7 +72,7 @@ workflow the service is designed to support.
 > **As built** (correction). This section previously claimed that tightening `precision` does
 > **not** reduce the estimate's Monte-Carlo error, on the grounds that a fixed seed reproduces the
 > same trajectory regardless. That was accidentally true when written: the CI stopping rule was
-> disabled by [#12](https://github.com/atantawi/qsim-service/issues/12), so `precision` was ignored
+> disabled by [#12](https://github.com/modeling-analysis/qsim-service/issues/12), so `precision` was ignored
 > entirely and tightening it genuinely changed nothing. With that fixed, `precision` binds and does
 > extend the run. The choice of seed-averaging here is unaffected — the reasoning above is.
 
